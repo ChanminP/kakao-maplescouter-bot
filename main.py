@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from urllib.parse import quote
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
@@ -54,6 +54,19 @@ MAPLESCOUTER_ALL_REFRESH_TASK = None
 def home():
     return {"message": "Kakao Maple Bot is running"}
 
+@app.head("/")
+def home_head():
+    return Response(status_code=200)
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+@app.head("/health")
+def health_check_head():
+    return Response(status_code=200)
 
 def simple_text(message: str):
     return {
