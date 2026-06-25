@@ -36,19 +36,37 @@ ALL_CHARACTERS = [
     "담요가좋아요",
 ]
 
+CHALLENGE_CHARACTERS = [
+    "망틴캡",
+    "트란스포머",
+    "페레페레테",
+    "병동생",
+    "도사밍경",
+    "레테맹이",
+]
+
 PET_ATTACK_CORRECTION = {
     "담아요란": 154,
     "담요가좋아요": 154,
 }
 
-MAPLESCOUTER_ALL_CACHE = {
-    "saved_time": 0,
-    "text": None,
+MAPLESCOUTER_ALL_CACHE_TTL = 300
+
+MAPLESCOUTER_ALL_CACHES = {
+    "normal": {
+        "saved_time": 0,
+        "text": None,
+    },
+    "challenge": {
+        "saved_time": 0,
+        "text": None,
+    },
 }
 
-MAPLESCOUTER_ALL_CACHE_TTL = 300
-MAPLESCOUTER_ALL_REFRESH_TASK = None
-
+MAPLESCOUTER_ALL_REFRESH_TASKS = {
+    "normal": None,
+    "challenge": None,
+}
 
 @app.get("/")
 def home():
@@ -668,7 +686,10 @@ async def fetch_maplescouter_api(nickname: str):
         return None
 
 
-async def build_maplescouter_all_response():
+async def build_maplescouter_all_response(
+    character_names: list[str],
+    title: str,
+):
     # 동시에 너무 많이 요청하면 ReadTimeout이 잘 나므로 2개씩만 처리
     semaphore = asyncio.Semaphore(2)
 
@@ -712,7 +733,7 @@ async def build_maplescouter_all_response():
             }
 
     results = await asyncio.gather(
-        *[fetch_one(name) for name in ALL_CHARACTERS]
+        *[fetch_one(name) for name in character_names]
     )
 
     success_results = [r for r in results if r["success"]]
@@ -724,7 +745,7 @@ async def build_maplescouter_all_response():
     )
 
     lines = [
-        "[ 환산 전체 조회 ]",
+        title,
         "헥사환산(380) 기준 내림차순",
         "─────────────────",
     ]
@@ -758,46 +779,62 @@ async def build_maplescouter_all_response():
     return simple_text("\n".join(lines))
 
 
-async def refresh_maplescouter_all_cache():
-    global MAPLESCOUTER_ALL_REFRESH_TASK
-
+async def refresh_maplescouter_all_cache(
+    cache_key: str,
+    character_names: list[str],
+    title: str,
+):
     try:
-        print("Maplescouter all cache refresh started")
+        print(f"Maplescouter all cache refresh started: {cache_key}")
 
-        response = await build_maplescouter_all_response()
+        response = await build_maplescouter_all_response(
+            character_names=character_names,
+            title=title,
+        )
+
         text = response["template"]["outputs"][0]["simpleText"]["text"]
 
-        MAPLESCOUTER_ALL_CACHE["saved_time"] = time.time()
-        MAPLESCOUTER_ALL_CACHE["text"] = text
+        MAPLESCOUTER_ALL_CACHES[cache_key]["saved_time"] = time.time()
+        MAPLESCOUTER_ALL_CACHES[cache_key]["text"] = text
 
-        print("Maplescouter all cache refreshed")
+        print(f"Maplescouter all cache refreshed: {cache_key}")
 
     except Exception as e:
-        print("Maplescouter all cache refresh error:", repr(e))
+        print(f"Maplescouter all cache refresh error [{cache_key}]:", repr(e))
 
     finally:
-        MAPLESCOUTER_ALL_REFRESH_TASK = None
+        MAPLESCOUTER_ALL_REFRESH_TASKS[cache_key] = None
 
 
-def is_maplescouter_all_refreshing() -> bool:
-    return (
-        MAPLESCOUTER_ALL_REFRESH_TASK is not None
-        and not MAPLESCOUTER_ALL_REFRESH_TASK.done()
-    )
+def is_maplescouter_all_refreshing(cache_key: str) -> bool:
+    task = MAPLESCOUTER_ALL_REFRESH_TASKS.get(cache_key)
+
+    return task is not None and not task.done()
 
 
-def start_maplescouter_all_refresh():
-    global MAPLESCOUTER_ALL_REFRESH_TASK
-
-    if not is_maplescouter_all_refreshing():
-        MAPLESCOUTER_ALL_REFRESH_TASK = asyncio.create_task(
-            refresh_maplescouter_all_cache()
+def start_maplescouter_all_refresh(
+    cache_key: str,
+    character_names: list[str],
+    title: str,
+):
+    if not is_maplescouter_all_refreshing(cache_key):
+        MAPLESCOUTER_ALL_REFRESH_TASKS[cache_key] = asyncio.create_task(
+            refresh_maplescouter_all_cache(
+                cache_key=cache_key,
+                character_names=character_names,
+                title=title,
+            )
         )
 
 
-async def make_maplescouter_all_result():
-    cached_text = MAPLESCOUTER_ALL_CACHE.get("text")
-    saved_time = MAPLESCOUTER_ALL_CACHE.get("saved_time", 0)
+async def make_maplescouter_all_result(
+    cache_key: str,
+    character_names: list[str],
+    title: str,
+):
+    cache = MAPLESCOUTER_ALL_CACHES[cache_key]
+    cached_text = cache.get("text")
+    saved_time = cache.get("saved_time", 0)
     cache_age = time.time() - saved_time
 
     # 1. 캐시가 있고 5분 이내면 바로 출력
@@ -805,30 +842,38 @@ async def make_maplescouter_all_result():
         return simple_text(cached_text)
 
     # 2. 캐시는 없고, 이미 조회 중이면 조회 중 안내만 출력
-    if not cached_text and is_maplescouter_all_refreshing():
+    if not cached_text and is_maplescouter_all_refreshing(cache_key):
         return simple_text(
             "아직 전체 환산 조회 중입니다.\n"
-            "잠시 후 다시 '환산 all'을 입력해주세요."
+            "잠시 후 다시 입력해주세요."
         )
 
     # 3. 캐시는 없고, 조회 중도 아니면 조회 시작
     if not cached_text:
-        start_maplescouter_all_refresh()
+        start_maplescouter_all_refresh(
+            cache_key=cache_key,
+            character_names=character_names,
+            title=title,
+        )
 
         return simple_text(
             "전체 환산 조회를 시작했습니다.\n"
-            "약 10~20초 후 다시 '환산 all'을 입력해주세요."
+            "약 10~20초 후 다시 입력해주세요."
         )
 
     # 4. 캐시는 있지만 오래됐으면, 일단 이전 결과를 보여주고 백그라운드 갱신
     if cached_text and cache_age > MAPLESCOUTER_ALL_CACHE_TTL:
-        if is_maplescouter_all_refreshing():
+        if is_maplescouter_all_refreshing(cache_key):
             return simple_text(
                 cached_text
                 + "\n\n※ 이전 조회 결과입니다. 최신 값으로 갱신 중입니다."
             )
 
-        start_maplescouter_all_refresh()
+        start_maplescouter_all_refresh(
+            cache_key=cache_key,
+            character_names=character_names,
+            title=title,
+        )
 
         return simple_text(
             cached_text
@@ -1024,11 +1069,23 @@ async def handle_maplescouter_command(utterance: str):
     normalized = normalized.replace("\ufeff", "")
     normalized = re.sub(r"\s+", " ", normalized)
 
-    # 환산 all / 환산all / 환산 전체 모두 허용
+    # 기존 본섭 7캐릭 전체 조회
     if re.fullmatch(r"!?환산\s*(all|전체)", normalized, re.IGNORECASE):
-        return await make_maplescouter_all_result()
+        return await make_maplescouter_all_result(
+            cache_key="normal",
+            character_names=ALL_CHARACTERS,
+            title="[ 환산 전체 조회 ]",
+        )
 
-    # 예: 환산 담아요란
+    # 챌린저스 서버 6캐릭 전체 조회
+    if re.fullmatch(r"!?챌섭환산\s*(all|전체)", normalized, re.IGNORECASE):
+        return await make_maplescouter_all_result(
+            cache_key="challenge",
+            character_names=CHALLENGE_CHARACTERS,
+            title="[ 챌섭 환산 전체 조회 ]",
+        )
+
+    # 개별 환산 조회
     match = re.search(r"^!?환산\s+(.+?)\s*$", normalized)
 
     if match:
@@ -1259,7 +1316,8 @@ async def kakao_skill(request: Request):
         "사용 가능한 명령어입니다.\n\n"
         "1. 환산 조회\n"
         "환산 닉네임\n"
-        "환산 all\n\n"
+        "환산 all\n"
+        "챌섭환산 all\n\n"
         "2. 보스 분배 계산기\n"
         "분배계산기\n"
         "분배 300억 6명\n\n"
