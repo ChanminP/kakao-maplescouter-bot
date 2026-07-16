@@ -624,14 +624,24 @@ def build_simulator_payload(user_stat: dict, atk_value: int) -> dict:
 
 def get_auction_config() -> dict[str, Any]:
     required = {
-        "wts": os.getenv("NEXON_AUCTION_WTS"),
-        "account_id": os.getenv("NEXON_AUCTION_ACCOUNT_ID"),
-        "character_id": os.getenv("NEXON_AUCTION_CHARACTER_ID"),
-        "device_id": os.getenv("NEXON_AUCTION_DEVICE_ID"),
+        "wts": os.getenv("NEXON_AUCTION_WTS", "").strip(),
+        "account_id": os.getenv(
+            "NEXON_AUCTION_ACCOUNT_ID",
+            "",
+        ).strip(),
+        "character_id": os.getenv(
+            "NEXON_AUCTION_CHARACTER_ID",
+            "",
+        ).strip(),
+        "device_id": os.getenv(
+            "NEXON_AUCTION_DEVICE_ID",
+            "",
+        ).strip(),
     }
 
     missing = [
-        key for key, value in required.items()
+        key
+        for key, value in required.items()
         if not value
     ]
 
@@ -1388,9 +1398,6 @@ async def handle_maplescouter_command(utterance: str):
 async def handle_auction_command(command: str) -> str:
     raw_name = command.removeprefix("경매장").strip()
 
-    if raw_name in AUCTION_SETS:
-        return await handle_auction_set(raw_name)
-
     if not raw_name:
         return (
             "아이템명을 입력해주세요.\n"
@@ -1398,12 +1405,55 @@ async def handle_auction_command(command: str) -> str:
             "예: 경매장 루즈 컨트롤 머신 마크"
         )
 
+    if raw_name in AUCTION_SETS:
+        return await handle_auction_set(raw_name)
+
     item_name, item_category = normalize_auction_item(raw_name)
 
-    result = await fetch_auction_lowest(
-        item_name=item_name,
-        item_category=item_category,
-    )
+    try:
+        result = await fetch_auction_lowest(
+            item_name=item_name,
+            item_category=item_category,
+        )
+
+    except RuntimeError as error:
+        print(
+            f"Auction command error [{item_name}]:",
+            repr(error),
+        )
+
+        error_message = str(error)
+
+        if "인증이 만료" in error_message:
+            return (
+                "경매장 인증이 만료되었습니다.\n"
+                "관리자가 인증정보를 갱신해야 합니다."
+            )
+
+        if "호출 제한" in error_message:
+            return (
+                "경매장 조회 요청이 많습니다.\n"
+                "잠시 후 다시 시도해주세요."
+            )
+
+        return (
+            "경매장 조회 중 오류가 발생했습니다.\n"
+            "잠시 후 다시 시도해주세요."
+        )
+
+    except httpx.TimeoutException:
+        return (
+            "경매장 응답이 지연되고 있습니다.\n"
+            "잠시 후 다시 시도해주세요."
+        )
+
+    except Exception as error:
+        print(
+            f"Unexpected auction error [{item_name}]:",
+            repr(error),
+        )
+
+        return "경매장 조회 중 알 수 없는 오류가 발생했습니다."
 
     if not result["found"]:
         return (
@@ -1414,7 +1464,7 @@ async def handle_auction_command(command: str) -> str:
     return (
         f"🔍 {result['item_name']}\n\n"
         f"최저가: {format_meso(result['price_per_item'])}\n"
-        f"기준: {result['checked_at']}"
+        f"{result['checked_at']} 기준"
     )
 
 async def handle_auction_set(set_name: str) -> str:
@@ -1440,6 +1490,18 @@ async def handle_auction_set(set_name: str) -> str:
         *tasks,
         return_exceptions=True,
     )
+
+    authentication_failed = any(
+        isinstance(result, RuntimeError)
+        and "인증이 만료" in str(result)
+        for result in results
+    )
+
+    if authentication_failed:
+        return (
+            "경매장 인증이 만료되었습니다.\n"
+            "관리자가 인증정보를 갱신해야 합니다."
+        )
 
     lines = [
         f"📦 {set_name} 최저가",
