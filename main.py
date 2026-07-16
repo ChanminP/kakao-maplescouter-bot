@@ -9,6 +9,11 @@ import math
 import time
 import httpx
 import asyncio
+from zoneinfo import ZoneInfo
+
+checked_at = datetime.now(
+    ZoneInfo("Asia/Seoul")
+).strftime("%m/%d %H:%M")
 
 load_dotenv()
 
@@ -145,6 +150,8 @@ auction_locks: dict[str, asyncio.Lock] = {}
 
 # 넥슨 경매장 API는 최대 4개까지만 동시 호출
 auction_request_semaphore = asyncio.Semaphore(4)
+
+checked_at = datetime.now().strftime("%m/%d %H:%M")
 
 @app.get("/")
 def home():
@@ -722,6 +729,11 @@ async def fetch_auction_lowest(
                     headers=headers,
                     json=payload,
                 )
+            checked_at = datetime.now(
+                ZoneInfo("Asia/Seoul")
+            ).strftime("%m/%d %H:%M")
+
+            data = response.json()
 
         if response.status_code == 401:
             raise RuntimeError(
@@ -766,6 +778,7 @@ async def fetch_auction_lowest(
             result = {
                 "found": False,
                 "query": item_name,
+                "checked_at": checked_at,
             }
         else:
             result = {
@@ -775,6 +788,7 @@ async def fetch_auction_lowest(
                 "price": int(lowest["price"]),
                 "price_per_item": int(lowest["pricePerItem"]),
                 "quantity": int(lowest.get("quantity", 1)),
+                "checked_at": checked_at,
             }
 
         auction_cache[cache_key] = {
@@ -1399,7 +1413,8 @@ async def handle_auction_command(command: str) -> str:
 
     return (
         f"🔍 {result['item_name']}\n\n"
-        f"최저가: {format_meso(result['price_per_item'])}"
+        f"최저가: {format_meso(result['price_per_item'])}\n"
+        f"기준: {result['checked_at']}"
     )
 
 async def handle_auction_set(set_name: str) -> str:
