@@ -746,14 +746,15 @@ async def fetch_auction_lowest(
 
             data = response.json()
 
-            print("=" * 80)
-            print(item_name)
-            print(json.dumps(
-                data["items"][0],
-                ensure_ascii=False,
-                indent=2,
-            ))
-            print("=" * 80)
+            if "items" in data and data["items"]:
+                print("="*80)
+                print(item_name)
+                print(json.dumps(
+                    data["items"][0],
+                    ensure_ascii=False,
+                    indent=2,
+                ))
+                print("="*80)
 
         if response.status_code == 401:
             raise RuntimeError(
@@ -1496,10 +1497,25 @@ async def handle_auction_set(set_name: str) -> str:
         )
 
     # 오류 하나 때문에 세트 전체 조회가 실패하지 않도록 예외도 결과로 받음
-    results = await asyncio.gather(
-        *tasks,
-        return_exceptions=True,
-    )
+    results = []
+
+    for alias in aliases:
+        item_name, category = normalize_auction_item(alias)
+        try:
+            result = await fetch_auction_lowest(
+                item_name=item_name,
+                item_category=category,
+            )
+        except Exception as e:
+            print(
+                f"Auction set fetch error [{set_name}/{alias}]:",
+                repr(e),
+            )
+            result = e
+        results.append(result)
+
+    # 호출 제한 방지
+    await asyncio.sleep(0.25)
 
     authentication_failed = any(
         isinstance(result, RuntimeError)
@@ -1566,7 +1582,17 @@ async def get_ocid(character_name: str) -> tuple[str | None, str | None]:
             return None, "Nexon Open API 키를 확인해주세요."
 
         if response.status_code == 429:
-            return None, "API 요청이 많아요. 잠시 후 다시 시도해주세요."
+            await asyncio.sleep(1)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    AUCTION_API_URL,
+                    headers=headers,
+                    json=payload,
+                )
+            if response.status_code == 429:
+                raise RuntimeError(
+                    "경매장 호출 제한에 걸렸습니다. 잠시 후 다시 시도해주세요."
+                )
 
         return None, f"캐릭터 조회 중 오류가 발생했어요. ({response.status_code})"
 
