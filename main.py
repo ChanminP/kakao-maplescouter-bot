@@ -77,6 +77,36 @@ AUCTION_ITEMS = {
     "오만원": ("오만의 원죄", "ARMOR"),
 }
 
+AUCTION_SETS = {
+    "칠흑": [
+        "루컨마",
+        "마깃안",
+        "몽벨",
+        "고근",
+        "커포",          # 커포링 말고 하나만!
+        "거공",
+        "창뱃",
+        "적마도서",
+        "녹마도서",
+        "황마도서",
+        "청마도서",
+        "컴플",
+        "궁수미트라",
+        "전사미트라",
+        "법사미트라",
+        "도적미트라",
+        "해적미트라",
+    ],
+
+    "광휘": [
+        "황몽",
+        "근속",
+        "죽맹",
+        "불산",
+        "오만원",
+    ],
+}
+
 PET_ATTACK_CORRECTION = {
     "담아요란": 154,
     "담요가좋아요": 154,
@@ -106,8 +136,15 @@ AUCTION_API_URL = (
 )
 
 AUCTION_CACHE_TTL = 60
+
+# 아이템별 최저가 캐시
 auction_cache: dict[str, dict[str, Any]] = {}
-auction_lock = asyncio.Lock()
+
+# 같은 아이템이 동시에 조회되는 것만 방지
+auction_locks: dict[str, asyncio.Lock] = {}
+
+# 넥슨 경매장 API는 최대 4개까지만 동시 호출
+auction_request_semaphore = asyncio.Semaphore(4)
 
 @app.get("/")
 def home():
@@ -615,15 +652,23 @@ async def fetch_auction_lowest(
     cache_key = f"{item_category}:{item_name}"
     now = time.monotonic()
 
+    # 1. 유효한 캐시가 있으면 즉시 반환
     cached = auction_cache.get(cache_key)
+
     if cached and now - cached["saved_at"] < AUCTION_CACHE_TTL:
         return {
             **cached["data"],
             "cached": True,
         }
 
-    async with auction_lock:
-        # 락 대기 중 다른 요청이 캐시를 채웠는지 재확인
+    # 같은 아이템에 대해서만 동일한 락 사용
+    item_lock = auction_locks.setdefault(
+        cache_key,
+        asyncio.Lock(),
+    )
+
+    async with item_lock:
+        # 락을 기다리는 동안 다른 요청이 캐시를 채웠을 수 있으므로 재확인
         cached = auction_cache.get(cache_key)
         now = time.monotonic()
 
@@ -666,12 +711,17 @@ async def fetch_auction_lowest(
             "characterId": config["character_id"],
         }
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                AUCTION_API_URL,
-                headers=headers,
-                json=payload,
-            )
+        # 서로 다른 아이템도 최대 4개까지만 동시에 요청
+        async with auction_request_semaphore:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(15.0, connect=5.0),
+                follow_redirects=True,
+            ) as client:
+                response = await client.post(
+                    AUCTION_API_URL,
+                    headers=headers,
+                    json=payload,
+                )
 
         if response.status_code == 401:
             raise RuntimeError(
@@ -689,10 +739,18 @@ async def fetch_auction_lowest(
                 f"경매장 API 오류: HTTP {response.status_code}"
             )
 
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as error:
+            raise RuntimeError(
+                "경매장 API에서 올바르지 않은 응답을 받았습니다."
+            ) from error
 
+        # 검색어가 비슷한 다른 아이템이 반환될 수 있으므로
+        # 정확히 같은 아이템명만 사용
         valid_items = [
-            item for item in data.get("items", [])
+            item
+            for item in data.get("items", [])
             if item.get("status") == "ON_SALE"
             and item.get("pricePerItem") is not None
             and item.get("itemName") == item_name
@@ -708,7 +766,6 @@ async def fetch_auction_lowest(
             result = {
                 "found": False,
                 "query": item_name,
-                "total": data.get("total", 0),
             }
         else:
             result = {
@@ -718,7 +775,6 @@ async def fetch_auction_lowest(
                 "price": int(lowest["price"]),
                 "price_per_item": int(lowest["pricePerItem"]),
                 "quantity": int(lowest.get("quantity", 1)),
-                "total": int(data.get("total", 0)),
             }
 
         auction_cache[cache_key] = {
@@ -1318,6 +1374,9 @@ async def handle_maplescouter_command(utterance: str):
 async def handle_auction_command(command: str) -> str:
     raw_name = command.removeprefix("경매장").strip()
 
+    if raw_name in AUCTION_SETS:
+        return await handle_auction_set(raw_name)
+
     if not raw_name:
         return (
             "아이템명을 입력해주세요.\n"
@@ -1338,14 +1397,58 @@ async def handle_auction_command(command: str) -> str:
             "판매 중인 정확한 일치 매물을 찾지 못했습니다."
         )
 
-    cache_text = " · 캐시" if result["cached"] else ""
-
     return (
         f"🔍 {result['item_name']}\n\n"
-        f"최저가: {format_meso(result['price_per_item'])}\n"
-        f"등록 매물: {result['total']:,}개"
-        f"{cache_text}"
+        f"최저가: {format_meso(result['price_per_item'])}"
     )
+
+async def handle_auction_set(set_name: str) -> str:
+    aliases = AUCTION_SETS.get(set_name)
+
+    if not aliases:
+        return f"'{set_name}' 세트 정보를 찾지 못했습니다."
+
+    tasks = []
+
+    for alias in aliases:
+        item_name, item_category = normalize_auction_item(alias)
+
+        tasks.append(
+            fetch_auction_lowest(
+                item_name=item_name,
+                item_category=item_category,
+            )
+        )
+
+    # 오류 하나 때문에 세트 전체 조회가 실패하지 않도록 예외도 결과로 받음
+    results = await asyncio.gather(
+        *tasks,
+        return_exceptions=True,
+    )
+
+    lines = [
+        f"📦 {set_name} 최저가",
+        "─────────────────",
+    ]
+
+    for alias, result in zip(aliases, results):
+        if isinstance(result, Exception):
+            print(
+                f"Auction set fetch error [{set_name}/{alias}]:",
+                repr(result),
+            )
+            lines.append(f"{alias}: 조회 실패")
+            continue
+
+        if not result.get("found"):
+            lines.append(f"{alias}: 매물 없음")
+            continue
+
+        lines.append(
+            f"{alias}: {format_meso(result['price_per_item'])}"
+        )
+
+    return "\n".join(lines)
 
 async def get_ocid(character_name: str) -> tuple[str | None, str | None]:
     if not NEXON_API_KEY:
