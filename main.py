@@ -756,22 +756,22 @@ async def fetch_auction_lowest(
 
                 item = data["items"][0]
 
-                print("itemName =", item["itemName"])
-                print("isMyWorld =", item["isMyWorld"])
-                print("itemIcon =", item["itemIcon"])
-                print("encryptedItemId =", item["encryptedItemId"])
+                print("=" * 80)
+                print("TOP LEVEL KEYS")
+                for key, value in item.items():
+                    print(f"{key:25} : {type(value).__name__}")
+                print("=" * 80)
 
-                print("toolTip type =", type(item["toolTip"]))
+                tool = item["toolTip"]
 
-                if isinstance(item["toolTip"], dict):
-                    print("toolTip keys =", item["toolTip"].keys())
-                    print(json.dumps(
-                        item["toolTip"],
-                        ensure_ascii=False,
-                        indent=2,
-                    ))
-                else:
-                    print("toolTip =", item["toolTip"])
+                print("=" * 80)
+                print("TOOLTIP KEYS")
+                for key, value in tool.items():
+                    print(f"{key:25} : {type(value).__name__}")
+                print("=" * 80)
+
+                print("toolTipType")
+                print("toolTipType =", item["toolTipType"])
 
         if response.status_code == 401:
             raise RuntimeError(
