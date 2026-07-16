@@ -754,24 +754,32 @@ async def fetch_auction_lowest(
                 #     indent=2,
                 # ))
 
-                item = data["items"][0]
+                for i in range(2):
+                    item = data["items"][i]
 
-                print("=" * 80)
-                print("TOP LEVEL KEYS")
-                for key, value in item.items():
-                    print(f"{key:25} : {type(value).__name__}")
-                print("=" * 80)
+                    print("----------------")
+                    print(i)
+                    print(item["price"])
+                    print(item["isMyWorld"])
 
-                tool = item["toolTip"]
+                # item = data["items"][0]
 
-                print("=" * 80)
-                print("TOOLTIP KEYS")
-                for key, value in tool.items():
-                    print(f"{key:25} : {type(value).__name__}")
-                print("=" * 80)
+                # print("=" * 80)
+                # print("TOP LEVEL KEYS")
+                # for key, value in item.items():
+                #     print(f"{key:25} : {type(value).__name__}")
+                # print("=" * 80)
 
-                print("toolTipType")
-                print("toolTipType =", item["toolTipType"])
+                # tool = item["toolTip"]
+
+                # print("=" * 80)
+                # print("TOOLTIP KEYS")
+                # for key, value in tool.items():
+                #     print(f"{key:25} : {type(value).__name__}")
+                # print("=" * 80)
+
+                # print("toolTipType")
+                # print("toolTipType =", item["toolTipType"])
 
         if response.status_code == 401:
             raise RuntimeError(
