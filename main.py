@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Response
 from urllib.parse import quote
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
+from typing import Any
 import os
 import re
 import math
@@ -45,6 +46,37 @@ CHALLENGE_CHARACTERS = [
     "레테맹이",
 ]
 
+AUCTION_ITEMS = {
+    "루컨마": ("루즈 컨트롤 머신 마크", "ARMOR"),
+    "마깃안": ("마력이 깃든 안대", "ARMOR"),
+    "몽벨": ("몽환의 벨트", "ARMOR"),
+    "고근": ("고통의 근원", "ARMOR"),
+    "커포": ("커맨더 포스 이어링", "ARMOR"),
+    "커포링": ("커맨더 포스 이어링", "ARMOR"),
+    "거공": ("거대한 공포", "ARMOR"),
+    "창뱃": ("창세의 뱃지", "ARMOR"),
+    "적마도서": ("저주받은 적의 마도서", "ARMOR"),
+    "녹마도서": ("저주받은 녹의 마도서", "ARMOR"),
+    "황마도서": ("저주받은 황의 마도서", "ARMOR"),
+    "청마도서": ("저주받은 청의 마도서", "ARMOR"),
+    "컴플": ("컴플리트 언더컨트롤", "ARMOR"),
+    "언컨": ("컴플리트 언더컨트롤", "ARMOR"),
+    "궁수미트라": ("미트라의 분노 : 궁수", "ARMOR"),
+    "전사미트라": ("미트라의 분노 : 전사", "ARMOR"),
+    "법사미트라": ("미트라의 분노 : 마법사", "ARMOR"),
+    "도적미트라": ("미트라의 분노 : 도적", "ARMOR"),
+    "해적미트라": ("미트라의 분노 : 해적", "ARMOR"),
+    "황몽": ("황홀한 악몽", "ARMOR"),
+    "황홀": ("황홀한 악몽", "ARMOR"),
+    "황악": ("황홀한 악몽", "ARMOR"),
+    "근속": ("근원의 속삭임", "ARMOR"),
+    "죽맹": ("죽음의 맹세", "ARMOR"),
+    "불산": ("불멸의 유산", "ARMOR"),
+    "불유": ("불멸의 유산", "ARMOR"),
+    "멸산": ("불멸의 유산", "ARMOR"),
+    "오만원": ("오만의 원죄", "ARMOR"),
+}
+
 PET_ATTACK_CORRECTION = {
     "담아요란": 154,
     "담요가좋아요": 154,
@@ -73,145 +105,9 @@ AUCTION_API_URL = (
     "v1/market/web/items/searches/tool-tip"
 )
 
-
-@app.get("/auction-test")
-async def auction_test():
-    wts = os.getenv("NEXON_AUCTION_WTS")
-    account_id = os.getenv("NEXON_AUCTION_ACCOUNT_ID")
-    character_id = os.getenv("NEXON_AUCTION_CHARACTER_ID")
-    device_id = os.getenv("NEXON_AUCTION_DEVICE_ID")
-
-    missing = [
-        name
-        for name, value in {
-            "NEXON_AUCTION_WTS": wts,
-            "NEXON_AUCTION_ACCOUNT_ID": account_id,
-            "NEXON_AUCTION_CHARACTER_ID": character_id,
-            "NEXON_AUCTION_DEVICE_ID": device_id,
-        }.items()
-        if not value
-    ]
-
-    if missing:
-        return {
-            "ok": False,
-            "stage": "environment",
-            "error": "필수 환경변수가 없습니다.",
-            "missing": missing,
-        }
-
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json",
-        "Origin": "https://auction.maplestory.nexon.com",
-        "Referer": "https://auction.maplestory.nexon.com/",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36"
-        ),
-        "X-Client-Version": "1.0.1",
-        "X-Device-Id": device_id,
-        "X-Platform": "PC_WEB",
-        "Cookie": f"_wts={wts}",
-    }
-
-    payload = {
-        "worldId": 16,
-        "accountId": int(account_id),
-        "page": 1,
-        "limit": 20,
-        "sortType": "PRICE_PER_ITEM_ASC",
-        "filters": {
-            "keyword": "루즈 컨트롤 머신 마크",
-            "itemCategory": {
-                "itemDetailCategory": "ARMOR",
-            },
-        },
-        "saveRecentKeyword": False,
-        "characterId": int(character_id),
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                AUCTION_API_URL,
-                headers=headers,
-                json=payload,
-            )
-
-        try:
-            data = response.json()
-        except ValueError:
-            return {
-                "ok": False,
-                "stage": "response",
-                "status": response.status_code,
-                "error": "JSON이 아닌 응답이 반환됐습니다.",
-                "body_preview": response.text[:300],
-            }
-
-        if response.status_code != 201:
-            return {
-                "ok": False,
-                "stage": "auction_api",
-                "status": response.status_code,
-                "nexon_code": data.get("code"),
-                "path": data.get("path"),
-            }
-
-        items = [
-            item
-            for item in data.get("items", [])
-            if item.get("status") == "ON_SALE"
-            and item.get("pricePerItem") is not None
-        ]
-
-        lowest = min(
-            items,
-            key=lambda item: int(item["pricePerItem"]),
-            default=None,
-        )
-
-        if lowest is None:
-            return {
-                "ok": True,
-                "status": response.status_code,
-                "message": "검색은 성공했지만 판매 중인 매물이 없습니다.",
-                "total": data.get("total"),
-            }
-
-        return {
-            "ok": True,
-            "status": response.status_code,
-            "execution_environment": "render",
-            "item_name": lowest.get("itemName"),
-            "lowest_price": int(lowest["pricePerItem"]),
-            "quantity": lowest.get("quantity"),
-            "total_listings": data.get("total"),
-            "returned_items": len(items),
-            "search_key": data.get("searchKey"),
-        }
-
-    except httpx.TimeoutException:
-        return {
-            "ok": False,
-            "stage": "network",
-            "error": "넥슨 경매장 API 응답 시간이 초과됐습니다.",
-        }
-
-    except httpx.RequestError as error:
-        return {
-            "ok": False,
-            "stage": "network",
-            "error": type(error).__name__,
-        }
-
-    except (TypeError, ValueError) as error:
-        return {
-            "ok": False,
-            "stage": "configuration",
-            "error": str(error),
-        }
+AUCTION_CACHE_TTL = 60
+auction_cache: dict[str, dict[str, Any]] = {}
+auction_lock = asyncio.Lock()
 
 @app.get("/")
 def home():
@@ -682,6 +578,158 @@ def build_simulator_payload(user_stat: dict, atk_value: int) -> dict:
         "destiny2ndSkill": bool(special.get("destiny2ndSkill", False)),
     }
 
+def get_auction_config() -> dict[str, Any]:
+    required = {
+        "wts": os.getenv("NEXON_AUCTION_WTS"),
+        "account_id": os.getenv("NEXON_AUCTION_ACCOUNT_ID"),
+        "character_id": os.getenv("NEXON_AUCTION_CHARACTER_ID"),
+        "device_id": os.getenv("NEXON_AUCTION_DEVICE_ID"),
+    }
+
+    missing = [
+        key for key, value in required.items()
+        if not value
+    ]
+
+    if missing:
+        raise RuntimeError(
+            f"경매장 환경변수 누락: {', '.join(missing)}"
+        )
+
+    return {
+        "wts": required["wts"],
+        "account_id": int(required["account_id"]),
+        "character_id": int(required["character_id"]),
+        "device_id": required["device_id"],
+    }
+
+async def fetch_auction_lowest(
+    item_name: str,
+    item_category: str = "ARMOR",
+) -> dict[str, Any]:
+    item_name = item_name.strip()
+
+    if not item_name:
+        raise ValueError("아이템명이 비어 있습니다.")
+
+    cache_key = f"{item_category}:{item_name}"
+    now = time.monotonic()
+
+    cached = auction_cache.get(cache_key)
+    if cached and now - cached["saved_at"] < AUCTION_CACHE_TTL:
+        return {
+            **cached["data"],
+            "cached": True,
+        }
+
+    async with auction_lock:
+        # 락 대기 중 다른 요청이 캐시를 채웠는지 재확인
+        cached = auction_cache.get(cache_key)
+        now = time.monotonic()
+
+        if cached and now - cached["saved_at"] < AUCTION_CACHE_TTL:
+            return {
+                **cached["data"],
+                "cached": True,
+            }
+
+        config = get_auction_config()
+
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json",
+            "Origin": "https://auction.maplestory.nexon.com",
+            "Referer": "https://auction.maplestory.nexon.com/",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36"
+            ),
+            "X-Client-Version": "1.0.1",
+            "X-Device-Id": config["device_id"],
+            "X-Platform": "PC_WEB",
+            "Cookie": f"_wts={config['wts']}",
+        }
+
+        payload = {
+            "worldId": 16,
+            "accountId": config["account_id"],
+            "page": 1,
+            "limit": 20,
+            "sortType": "PRICE_PER_ITEM_ASC",
+            "filters": {
+                "keyword": item_name,
+                "itemCategory": {
+                    "itemDetailCategory": item_category,
+                },
+            },
+            "saveRecentKeyword": False,
+            "characterId": config["character_id"],
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                AUCTION_API_URL,
+                headers=headers,
+                json=payload,
+            )
+
+        if response.status_code == 401:
+            raise RuntimeError(
+                "경매장 인증이 만료되었습니다. "
+                "Render의 NEXON_AUCTION_WTS를 갱신해야 합니다."
+            )
+
+        if response.status_code == 429:
+            raise RuntimeError(
+                "경매장 호출 제한에 걸렸습니다. 잠시 후 다시 시도해주세요."
+            )
+
+        if response.status_code != 201:
+            raise RuntimeError(
+                f"경매장 API 오류: HTTP {response.status_code}"
+            )
+
+        data = response.json()
+
+        valid_items = [
+            item for item in data.get("items", [])
+            if item.get("status") == "ON_SALE"
+            and item.get("pricePerItem") is not None
+            and item.get("itemName") == item_name
+        ]
+
+        lowest = min(
+            valid_items,
+            key=lambda item: int(item["pricePerItem"]),
+            default=None,
+        )
+
+        if lowest is None:
+            result = {
+                "found": False,
+                "query": item_name,
+                "total": data.get("total", 0),
+            }
+        else:
+            result = {
+                "found": True,
+                "query": item_name,
+                "item_name": lowest["itemName"],
+                "price": int(lowest["price"]),
+                "price_per_item": int(lowest["pricePerItem"]),
+                "quantity": int(lowest.get("quantity", 1)),
+                "total": int(data.get("total", 0)),
+            }
+
+        auction_cache[cache_key] = {
+            "saved_at": time.monotonic(),
+            "data": result,
+        }
+
+        return {
+            **result,
+            "cached": False,
+        }
 
 async def fetch_pet_corrected_maplescouter_result(
     nickname: str,
@@ -1225,6 +1273,15 @@ def handle_distribution_command(utterance: str):
 
     return None
 
+def normalize_auction_item(raw_name: str):
+    raw_name = raw_name.strip()
+
+    if raw_name in AUCTION_ITEMS:
+        return AUCTION_ITEMS[raw_name]
+
+    # 별칭이 없으면 입력 그대로, 기본 카테고리는 ARMOR
+    return raw_name, "ARMOR"
+
 
 async def handle_maplescouter_command(utterance: str):
     normalized = utterance.strip()
@@ -1258,6 +1315,37 @@ async def handle_maplescouter_command(utterance: str):
 
     return None
 
+async def handle_auction_command(command: str) -> str:
+    raw_name = command.removeprefix("경매장").strip()
+
+    if not raw_name:
+        return (
+            "아이템명을 입력해주세요.\n"
+            "예: 경매장 루컨마\n"
+            "예: 경매장 루즈 컨트롤 머신 마크"
+        )
+
+    item_name, item_category = normalize_auction_item(raw_name)
+
+    result = await fetch_auction_lowest(
+        item_name=item_name,
+        item_category=item_category,
+    )
+
+    if not result["found"]:
+        return (
+            f"🔍 {item_name}\n\n"
+            "판매 중인 정확한 일치 매물을 찾지 못했습니다."
+        )
+
+    cache_text = " · 캐시" if result["cached"] else ""
+
+    return (
+        f"🔍 {result['item_name']}\n\n"
+        f"최저가: {format_meso(result['price_per_item'])}\n"
+        f"등록 매물: {result['total']:,}개"
+        f"{cache_text}"
+    )
 
 async def get_ocid(character_name: str) -> tuple[str | None, str | None]:
     if not NEXON_API_KEY:
@@ -1475,6 +1563,11 @@ async def kakao_skill(request: Request):
 
     if maplescouter_response:
         return maplescouter_response
+    
+    if utterance.startswith("경매장"):
+        return simple_text(
+            await handle_auction_command(utterance)
+        )
 
     return simple_text(
         "사용 가능한 명령어입니다.\n\n"
@@ -1486,5 +1579,9 @@ async def kakao_skill(request: Request):
         "분배계산기\n"
         "분배 300억 6명\n\n"
         "3. 경험치 조회\n"
-        "경험치 닉네임"
+        "경험치 닉네임\n"
+        "4. 경매장 조회\n"
+        "경매장 루컨마\n"
+        "경매장 마깃안\n"
+        "경매장 루즈 컨트롤 머신 마크"
     )
