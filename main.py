@@ -9,6 +9,7 @@ import math
 import time
 import httpx
 import asyncio
+import json
 from zoneinfo import ZoneInfo
 
 checked_at = datetime.now(
@@ -744,6 +745,15 @@ async def fetch_auction_lowest(
             ).strftime("%m/%d %H:%M")
 
             data = response.json()
+
+            print("=" * 80)
+            print(item_name)
+            print(json.dumps(
+                data["items"][0],
+                ensure_ascii=False,
+                indent=2,
+            ))
+            print("=" * 80)
 
         if response.status_code == 401:
             raise RuntimeError(
