@@ -68,6 +68,151 @@ MAPLESCOUTER_ALL_REFRESH_TASKS = {
     "challenge": None,
 }
 
+AUCTION_API_URL = (
+    "https://api.mskr.nexon.com/"
+    "v1/market/web/items/searches/tool-tip"
+)
+
+
+@app.get("/auction-test")
+async def auction_test():
+    wts = os.getenv("NEXON_AUCTION_WTS")
+    account_id = os.getenv("NEXON_AUCTION_ACCOUNT_ID")
+    character_id = os.getenv("NEXON_AUCTION_CHARACTER_ID")
+    device_id = os.getenv("NEXON_AUCTION_DEVICE_ID")
+
+    missing = [
+        name
+        for name, value in {
+            "NEXON_AUCTION_WTS": wts,
+            "NEXON_AUCTION_ACCOUNT_ID": account_id,
+            "NEXON_AUCTION_CHARACTER_ID": character_id,
+            "NEXON_AUCTION_DEVICE_ID": device_id,
+        }.items()
+        if not value
+    ]
+
+    if missing:
+        return {
+            "ok": False,
+            "stage": "environment",
+            "error": "필수 환경변수가 없습니다.",
+            "missing": missing,
+        }
+
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": "https://auction.maplestory.nexon.com",
+        "Referer": "https://auction.maplestory.nexon.com/",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36"
+        ),
+        "X-Client-Version": "1.0.1",
+        "X-Device-Id": device_id,
+        "X-Platform": "PC_WEB",
+        "Cookie": f"_wts={wts}",
+    }
+
+    payload = {
+        "worldId": 16,
+        "accountId": int(account_id),
+        "page": 1,
+        "limit": 20,
+        "sortType": "PRICE_PER_ITEM_ASC",
+        "filters": {
+            "keyword": "루즈 컨트롤 머신 마크",
+            "itemCategory": {
+                "itemDetailCategory": "ARMOR",
+            },
+        },
+        "saveRecentKeyword": False,
+        "characterId": int(character_id),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                AUCTION_API_URL,
+                headers=headers,
+                json=payload,
+            )
+
+        try:
+            data = response.json()
+        except ValueError:
+            return {
+                "ok": False,
+                "stage": "response",
+                "status": response.status_code,
+                "error": "JSON이 아닌 응답이 반환됐습니다.",
+                "body_preview": response.text[:300],
+            }
+
+        if response.status_code != 201:
+            return {
+                "ok": False,
+                "stage": "auction_api",
+                "status": response.status_code,
+                "nexon_code": data.get("code"),
+                "path": data.get("path"),
+            }
+
+        items = [
+            item
+            for item in data.get("items", [])
+            if item.get("status") == "ON_SALE"
+            and item.get("pricePerItem") is not None
+        ]
+
+        lowest = min(
+            items,
+            key=lambda item: int(item["pricePerItem"]),
+            default=None,
+        )
+
+        if lowest is None:
+            return {
+                "ok": True,
+                "status": response.status_code,
+                "message": "검색은 성공했지만 판매 중인 매물이 없습니다.",
+                "total": data.get("total"),
+            }
+
+        return {
+            "ok": True,
+            "status": response.status_code,
+            "execution_environment": "render",
+            "item_name": lowest.get("itemName"),
+            "lowest_price": int(lowest["pricePerItem"]),
+            "quantity": lowest.get("quantity"),
+            "total_listings": data.get("total"),
+            "returned_items": len(items),
+            "search_key": data.get("searchKey"),
+        }
+
+    except httpx.TimeoutException:
+        return {
+            "ok": False,
+            "stage": "network",
+            "error": "넥슨 경매장 API 응답 시간이 초과됐습니다.",
+        }
+
+    except httpx.RequestError as error:
+        return {
+            "ok": False,
+            "stage": "network",
+            "error": type(error).__name__,
+        }
+
+    except (TypeError, ValueError) as error:
+        return {
+            "ok": False,
+            "stage": "configuration",
+            "error": str(error),
+        }
+
 @app.get("/")
 def home():
     return {"message": "Kakao Maple Bot is running"}
