@@ -747,14 +747,25 @@ async def fetch_auction_lowest(
             data = response.json()
 
             if "items" in data and data["items"]:
-                print("="*80)
                 print(item_name)
-                print(json.dumps(
-                    data["items"][0],
-                    ensure_ascii=False,
-                    indent=2,
-                ))
-                print("="*80)
+                # print(json.dumps(
+                #     data["items"][0],
+                #     ensure_ascii=False,
+                #     indent=2,
+                # ))
+
+                item = data["items"][0]
+
+                print("=" * 80)
+                print("itemName =", item.get("itemName"))
+                print("price =", item.get("price"))
+                print("pricePerItem =", item.get("pricePerItem"))
+                print("quantity =", item.get("quantity"))
+
+                for key in item.keys():
+                    print(key)
+
+                print("=" * 80)
 
         if response.status_code == 401:
             raise RuntimeError(
