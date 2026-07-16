@@ -190,27 +190,46 @@ def stat_to_int(value) -> int:
 
 
 def parse_meso_amount(text: str) -> int | None:
-    text = text.replace(",", "").replace(" ", "")
-    text = text.replace("메소", "").replace("meso", "").replace("Meso", "")
+    # 쉼표와 메소 표기만 제거하고, 공백은 유지
+    cleaned = text.replace(",", "")
+    cleaned = re.sub(r"메소|meso", "", cleaned, flags=re.IGNORECASE)
 
-    eok_match = re.search(r"(\d+)억", text)
-    man_match = re.search(r"(\d+)만", text)
+    # 앞쪽 명령어 제거
+    cleaned = re.sub(r"^\s*!?분배\s*", "", cleaned)
 
-    if eok_match or man_match:
-        total = 0
+    # 뒤쪽 인원수 제거
+    # 예: "20000000000 3명" → "20000000000"
+    cleaned = re.sub(r"\s+\d+\s*명\s*$", "", cleaned).strip()
 
-        if eok_match:
-            total += int(eok_match.group(1)) * 100_000_000
+    if not cleaned:
+        return None
 
-        if man_match:
-            total += int(man_match.group(1)) * 10_000
+    # 조·억·만 단위 입력 처리
+    unit_values = {
+        "조": 1_000_000_000_000,
+        "억": 100_000_000,
+        "만": 10_000,
+    }
 
+    total = 0
+    unit_found = False
+
+    for unit, multiplier in unit_values.items():
+        match = re.search(rf"(\d+)\s*{unit}", cleaned)
+
+        if match:
+            total += int(match.group(1)) * multiplier
+            unit_found = True
+
+    if unit_found:
         return total if total > 0 else None
 
-    number_match = re.search(r"\d+", text)
+    # 단위 없이 숫자만 입력한 경우
+    number_match = re.fullmatch(r"\d+", cleaned)
 
     if number_match:
-        return int(number_match.group(0))
+        value = int(number_match.group(0))
+        return value if value > 0 else None
 
     return None
 
