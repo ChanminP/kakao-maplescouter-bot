@@ -748,11 +748,6 @@ async def fetch_auction_lowest(
 
             if "items" in data and data["items"]:
                 print(item_name)
-                # print(json.dumps(
-                #     data["items"][0],
-                #     ensure_ascii=False,
-                #     indent=2,
-                # ))
 
                 for i in range(2):
                     item = data["items"][i]
@@ -761,25 +756,6 @@ async def fetch_auction_lowest(
                     print(i)
                     print(item["price"])
                     print(item["isMyWorld"])
-
-                # item = data["items"][0]
-
-                # print("=" * 80)
-                # print("TOP LEVEL KEYS")
-                # for key, value in item.items():
-                #     print(f"{key:25} : {type(value).__name__}")
-                # print("=" * 80)
-
-                # tool = item["toolTip"]
-
-                # print("=" * 80)
-                # print("TOOLTIP KEYS")
-                # for key, value in tool.items():
-                #     print(f"{key:25} : {type(value).__name__}")
-                # print("=" * 80)
-
-                # print("toolTipType")
-                # print("toolTipType =", item["toolTipType"])
 
         if response.status_code == 401:
             raise RuntimeError(
@@ -814,13 +790,22 @@ async def fetch_auction_lowest(
             and item.get("itemName") == item_name
         ]
 
-        lowest = min(
+        lowest_all = min(
             valid_items,
-            key=lambda item: int(item["pricePerItem"]),
+            key=lambda x: int(x["pricePerItem"]),
             default=None,
         )
 
-        if lowest is None:
+        lowest_myworld = min(
+            (
+                x for x in valid_items
+                if x["isMyWorld"]
+            ),
+            key=lambda x: int(x["pricePerItem"]),
+            default=None,
+        )
+
+        if lowest_all is None:
             result = {
                 "found": False,
                 "query": item_name,
@@ -830,10 +815,25 @@ async def fetch_auction_lowest(
             result = {
                 "found": True,
                 "query": item_name,
-                "item_name": lowest["itemName"],
-                "price": int(lowest["price"]),
-                "price_per_item": int(lowest["pricePerItem"]),
-                "quantity": int(lowest.get("quantity", 1)),
+                "item_name": lowest_all["itemName"],
+
+                # W 포함 최저가
+                "lowest_price": int(lowest_all["pricePerItem"]),
+                "lowest_quantity": int(lowest_all.get("quantity", 1)),
+                "lowest_is_myworld": lowest_all["isMyWorld"],
+
+                # 우리 서버(엘리시움) 최저가
+                "myworld_price": (
+                    int(lowest_myworld["pricePerItem"])
+                    if lowest_myworld
+                    else None
+                ),
+                "myworld_quantity": (
+                    int(lowest_myworld.get("quantity", 1))
+                    if lowest_myworld
+                    else None
+                ),
+
                 "checked_at": checked_at,
             }
 
@@ -1497,11 +1497,29 @@ async def handle_auction_command(command: str) -> str:
             "판매 중인 정확한 일치 매물을 찾지 못했습니다."
         )
 
-    return (
-        f"🔍 {result['item_name']}\n\n"
-        f"최저가: {format_meso(result['price_per_item'])}\n"
-        f"{result['checked_at']} 기준"
+    message = f"🔍 {result['item_name']}\n\n"
+
+    # 우리 서버(엘리시움) 최저가
+    if result["myworld_price"] is not None:
+        message += (
+            f"🏠 엘리시움 : {format_meso(result['myworld_price'])}\n"
+        )
+
+    # 전체(W 포함) 최저가
+    message += (
+        f"🌐 타서버 포함 : {format_meso(result['lowest_price'])}"
     )
+
+    if not result["lowest_is_myworld"]:
+        real_price = math.ceil(result["lowest_price"] * 1.1)
+
+        message += (
+            f"\n      (관세 포함 약 {format_meso(real_price)})"
+        )
+
+    message += f"\n\n🕒 {result['checked_at']} 기준"
+
+    return message
 
 async def handle_auction_set(set_name: str) -> str:
     aliases = AUCTION_SETS.get(set_name)
