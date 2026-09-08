@@ -119,6 +119,17 @@ PET_SET_ATTACK_BY_TYPE = {
     "루나 쁘띠": (0, 8, 18, 36),
 }
 
+# 마스터라벨 전투 플러스: 목표 전투복의 마스터라벨 2개 착용 효과
+MASTER_LABEL_PLUS_TARGET_COUNT = 2
+MASTER_LABEL_PLUS_BONUS = {
+    0: (0, 0),
+    1: (10, 15),
+    2: (20, 40),
+    3: (30, 65),
+    4: (40, 90),
+    5: (60, 140),
+}
+
 MAPLESCOUTER_ALL_CACHE_TTL = 300
 
 MAPLESCOUTER_ALL_CACHES = {
@@ -523,15 +534,53 @@ def get_pet_set_attack(user_pet_data: list | None) -> int:
     )
 
 
+def get_master_label_count(user_cash_equip_data: list | None) -> int:
+    if not isinstance(user_cash_equip_data, list):
+        return 0
+
+    count = 0
+
+    for item in user_cash_equip_data:
+        if not isinstance(item, dict):
+            continue
+
+        label = ""
+        for key in (
+            "cash_item_label",
+            "cashItemLabel",
+            "item_label",
+            "itemLabel",
+            "label",
+        ):
+            value = item.get(key)
+            if value:
+                label = str(value).replace(" ", "").strip()
+                break
+
+        if label in {"마스터라벨", "마스터", "M라벨", "M"}:
+            count += 1
+
+    return min(5, count)
+
+
 def calculate_equipment_correction(nickname: str, data: dict):
     target = EQUIPMENT_TARGET_CORRECTION.get(nickname)
     if not target:
         return None
 
     special_data = get_user_special_data(data)
-    cash_bonus = sum_item_options(special_data.get("userCashEquipData"))
+    user_cash_equip_data = special_data.get("userCashEquipData")
+    cash_bonus = sum_item_options(user_cash_equip_data)
     pet_bonus = sum_item_options(special_data.get("userPetEquipData"))
     pet_set_attack = get_pet_set_attack(special_data.get("userPetData"))
+
+    current_master_label_count = get_master_label_count(user_cash_equip_data)
+    current_plus_attack, current_plus_all_stat = MASTER_LABEL_PLUS_BONUS[
+        current_master_label_count
+    ]
+    target_plus_attack, target_plus_all_stat = MASTER_LABEL_PLUS_BONUS[
+        MASTER_LABEL_PLUS_TARGET_COUNT
+    ]
 
     power_type = target["power_type"]
     current_attack = cash_bonus[power_type] + pet_bonus[power_type] + pet_set_attack
@@ -539,14 +588,30 @@ def calculate_equipment_correction(nickname: str, data: dict):
     current_sub_stat = cash_bonus[target["sub_stat_name"]]
 
     return {
-        "attack": target["attack"] - current_attack,
-        "main_stat": target["main_stat"] - current_main_stat,
-        "sub_stat": target["sub_stat"] - current_sub_stat,
+        "attack": (
+            target["attack"]
+            + target_plus_attack
+            - current_attack
+            - current_plus_attack
+        ),
+        "main_stat": (
+            target["main_stat"]
+            + target_plus_all_stat
+            - current_main_stat
+            - current_plus_all_stat
+        ),
+        "sub_stat": (
+            target["sub_stat"]
+            + target_plus_all_stat
+            - current_sub_stat
+            - current_plus_all_stat
+        ),
         "main_stat_name": target["main_stat_name"],
         "sub_stat_name": target["sub_stat_name"],
         "current_attack": current_attack,
         "current_main_stat": current_main_stat,
         "current_sub_stat": current_sub_stat,
+        "current_master_label_count": current_master_label_count,
     }
 
 
