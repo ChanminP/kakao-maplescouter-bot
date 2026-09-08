@@ -1525,36 +1525,3 @@ async def kakao_skill(request: Request):
         "3. 경험치 조회\n"
         "경험치 닉네임\n"
     )
-
-
-@app.on_event("startup")
-async def verify_sub_character_corrections_on_startup():
-    for nickname in (
-        "담요가좋아요",
-        "다람지스터",
-        "다람지맹이",
-        "담요네바이퍼",
-        "다람지수",
-    ):
-        try:
-            result = await fetch_maplescouter_api(nickname)
-            if result:
-                print(
-                    "SUB_CHARACTER_CORRECTION_VERIFY "
-                    f"nickname={nickname} "
-                    f"hexa={result.get('hexa_380')} "
-                    f"applied={result.get('equipment_correction_applied')} "
-                    f"correction={result.get('equipment_correction')}",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"SUB_CHARACTER_CORRECTION_VERIFY nickname={nickname} no_result",
-                    flush=True,
-                )
-        except Exception as exc:
-            print(
-                "SUB_CHARACTER_CORRECTION_VERIFY "
-                f"nickname={nickname} error={type(exc).__name__}",
-                flush=True,
-            )
