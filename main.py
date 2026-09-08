@@ -892,6 +892,7 @@ async def fetch_maplescouter_api(nickname: str):
 async def build_maplescouter_all_response(
     character_names: list[str],
     title: str,
+    include_general: bool = True,
 ):
     # 동시에 너무 많이 요청하면 ReadTimeout이 잘 나므로 2개씩만 처리
     semaphore = asyncio.Semaphore(2)
@@ -954,28 +955,27 @@ async def build_maplescouter_all_response(
     ]
 
     for idx, r in enumerate(success_results, start=1):
-        correction_text = ""
-
-        correction = r.get("equipment_correction") or {}
-
-        if r.get("equipment_correction_applied"):
-            correction_text = (
-                "\n   보정: 전투복/펫 "
-                f"공{correction.get('attack', 0):+d}, "
-                f"{correction.get('main_stat_name', '주스탯')}"
-                f"{correction.get('main_stat', 0):+d}, "
-                f"{correction.get('sub_stat_name', '부스탯')}"
-                f"{correction.get('sub_stat', 0):+d} 적용"
-            )
-        elif r.get("equipment_correction_needed"):
-            correction_text = "\n   보정: 전투복/펫 적용 실패"
-
-        lines.append(
-            f"{idx}. {r['nickname']}\n"
-            f"   환산(380): {format_stat(r['general_380'])}\n"
-            f"   헥사환산(380): {format_stat(r['hexa_380'])}"
-            f"{correction_text}"
+        correction_label = (
+            " (보정)" if r.get("equipment_correction_applied") else ""
         )
+        result_lines = [f"{idx}. {r['nickname']}{correction_label}"]
+
+        if include_general:
+            result_lines.append(
+                f"   환산(380): {format_stat(r['general_380'])}"
+            )
+
+        result_lines.append(
+            f"   헥사환산(380): {format_stat(r['hexa_380'])}"
+        )
+
+        if (
+            r.get("equipment_correction_needed")
+            and not r.get("equipment_correction_applied")
+        ):
+            result_lines.append("   보정: 전투복/펫 적용 실패")
+
+        lines.append("\n".join(result_lines))
 
     if failed_results:
         lines.append("─────────────────")
@@ -991,6 +991,7 @@ async def refresh_maplescouter_all_cache(
     cache_key: str,
     character_names: list[str],
     title: str,
+    include_general: bool = True,
 ):
     try:
         print(f"Maplescouter all cache refresh started: {cache_key}")
@@ -998,6 +999,7 @@ async def refresh_maplescouter_all_cache(
         response = await build_maplescouter_all_response(
             character_names=character_names,
             title=title,
+            include_general=include_general,
         )
 
         text = response["template"]["outputs"][0]["simpleText"]["text"]
@@ -1024,6 +1026,7 @@ def start_maplescouter_all_refresh(
     cache_key: str,
     character_names: list[str],
     title: str,
+    include_general: bool = True,
 ):
     if not is_maplescouter_all_refreshing(cache_key):
         MAPLESCOUTER_ALL_REFRESH_TASKS[cache_key] = asyncio.create_task(
@@ -1031,6 +1034,7 @@ def start_maplescouter_all_refresh(
                 cache_key=cache_key,
                 character_names=character_names,
                 title=title,
+                include_general=include_general,
             )
         )
 
@@ -1039,6 +1043,7 @@ async def make_maplescouter_all_result(
     cache_key: str,
     character_names: list[str],
     title: str,
+    include_general: bool = True,
 ):
     cache = MAPLESCOUTER_ALL_CACHES[cache_key]
     cached_text = cache.get("text")
@@ -1062,6 +1067,7 @@ async def make_maplescouter_all_result(
             cache_key=cache_key,
             character_names=character_names,
             title=title,
+            include_general=include_general,
         )
 
         return simple_text(
@@ -1081,6 +1087,7 @@ async def make_maplescouter_all_result(
             cache_key=cache_key,
             character_names=character_names,
             title=title,
+            include_general=include_general,
         )
 
         return simple_text(
@@ -1303,6 +1310,7 @@ async def handle_maplescouter_command(utterance: str):
             cache_key="sub",
             character_names=SUB_CHARACTERS,
             title="[ 부캐 환산 전체 조회 ]",
+            include_general=False,
         )
 
     # 개별 환산 조회
