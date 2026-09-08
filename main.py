@@ -8,7 +8,6 @@ import math
 import time
 import httpx
 import asyncio
-import json
 
 
 load_dotenv()
@@ -47,8 +46,22 @@ CHALLENGE_CHARACTERS = [
 ]
 
 
-PET_ATTACK_CORRECTION = {
-    "담아요란": 154,
+EQUIPMENT_TARGET_CORRECTION = {
+    "담아요란": {
+        # 전투복: 공 90, STR 189, DEX 170
+        # 펫장비 공 130 + 펫 세트효과 공 24
+        "attack": 244,
+        "main_stat": 189,
+        "sub_stat": 170,
+    },
+}
+
+PET_SET_ATTACK_BY_TYPE = {
+    "루나 크리스탈": (0, 3, 8, 15),
+    "루나 블랙": (0, 5, 12, 21),
+    "루나 스윗": (0, 6, 14, 24),
+    "루나 드림": (0, 7, 16, 27),
+    "루나 쁘띠": (0, 8, 18, 36),
 }
 
 MAPLESCOUTER_ALL_CACHE_TTL = 300
@@ -368,18 +381,111 @@ def extract_pet_status(data: dict):
     }
 
 
-def needs_pet_attack_correction(nickname: str, data: dict) -> bool:
-    if nickname not in PET_ATTACK_CORRECTION:
-        return False
+def option_value_to_int(value) -> int:
+    try:
+        return int(float(str(value).replace(",", "")))
+    except (TypeError, ValueError):
+        return 0
 
-    user_pet_data, user_pet_equip_data = get_pet_lists(data)
 
-    return (
-        isinstance(user_pet_data, list)
-        and isinstance(user_pet_equip_data, list)
-        and len(user_pet_data) == 0
-        and len(user_pet_equip_data) == 0
+def sum_item_options(items: list | None) -> dict[str, int]:
+    totals = {
+        "STR": 0,
+        "DEX": 0,
+        "INT": 0,
+        "LUK": 0,
+        "HP": 0,
+        "MP": 0,
+        "attack": 0,
+        "magic": 0,
+    }
+
+    if not isinstance(items, list):
+        return totals
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        options = item.get("itemOption", [])
+        if not isinstance(options, list):
+            continue
+
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+
+            option_type = str(option.get("option_type", "")).strip()
+            value = option_value_to_int(option.get("option_value"))
+
+            if option_type in {"ALL", "올스탯", "ALL STAT"}:
+                for stat_name in ("STR", "DEX", "INT", "LUK"):
+                    totals[stat_name] += value
+            elif option_type in totals:
+                totals[option_type] += value
+            elif option_type == "공격력":
+                totals["attack"] += value
+            elif option_type == "마력":
+                totals["magic"] += value
+            elif option_type in {"최대 HP", "최대HP"}:
+                totals["HP"] += value
+            elif option_type in {"최대 MP", "최대MP"}:
+                totals["MP"] += value
+
+    return totals
+
+
+def get_user_special_data(data: dict) -> dict:
+    special_data = data.get("userSpecialData") if isinstance(data, dict) else None
+
+    if not isinstance(special_data, dict):
+        special_data = find_first_key(data, ["userSpecialData"])
+
+    return special_data if isinstance(special_data, dict) else {}
+
+
+def get_pet_set_attack(user_pet_data: list | None) -> int:
+    if not isinstance(user_pet_data, list):
+        return 0
+
+    counts: dict[str, int] = {}
+
+    for pet in user_pet_data:
+        if not isinstance(pet, dict):
+            continue
+
+        pet_type = str(pet.get("pet_type", "")).strip()
+        if pet_type in PET_SET_ATTACK_BY_TYPE:
+            counts[pet_type] = min(3, counts.get(pet_type, 0) + 1)
+
+    return sum(
+        PET_SET_ATTACK_BY_TYPE[pet_type][count]
+        for pet_type, count in counts.items()
     )
+
+
+def calculate_equipment_correction(nickname: str, data: dict):
+    target = EQUIPMENT_TARGET_CORRECTION.get(nickname)
+    if not target:
+        return None
+
+    special_data = get_user_special_data(data)
+    cash_bonus = sum_item_options(special_data.get("userCashEquipData"))
+    pet_bonus = sum_item_options(special_data.get("userPetEquipData"))
+    pet_set_attack = get_pet_set_attack(special_data.get("userPetData"))
+
+    current_attack = cash_bonus["attack"] + pet_bonus["attack"] + pet_set_attack
+    current_main_stat = cash_bonus["STR"]
+    current_sub_stat = cash_bonus["DEX"]
+
+    return {
+        "attack": target["attack"] - current_attack,
+        "main_stat": target["main_stat"] - current_main_stat,
+        "sub_stat": target["sub_stat"] - current_sub_stat,
+        "current_attack": current_attack,
+        "current_main_stat": current_main_stat,
+        "current_sub_stat": current_sub_stat,
+    }
 
 
 def extract_maplescouter_values(data: dict):
@@ -483,16 +589,21 @@ def build_user_stat_for_simulator(data: dict) -> dict | None:
     return user_stat
 
 
-def build_simulator_payload(user_stat: dict, atk_value: int) -> dict:
+def build_simulator_payload(
+    user_stat: dict,
+    attack_delta: int,
+    main_stat_delta: int = 0,
+    sub_stat_delta: int = 0,
+) -> dict:
     special = user_stat.get("special", {})
     doping = user_stat.get("doping", {})
     link_skill = user_stat.get("linkSkill", {})
 
     return {
-        "mainStat": "0",
+        "mainStat": str(main_stat_delta),
         "mainStatPer": "0",
         "mainStatAbs": "0",
-        "subStat": "0",
+        "subStat": str(sub_stat_delta),
         "subStatPer": "0",
         "subStatAbs": "0",
         "ssubStat": "0",
@@ -502,7 +613,7 @@ def build_simulator_payload(user_stat: dict, atk_value: int) -> dict:
         "criRate": "0",
         "buffDuration": "0",
         "coolTimeReduce": "0",
-        "atk": str(atk_value),
+        "atk": str(attack_delta),
         "atkPer": "0",
         "bossDmg": "0",
         "criDmg": "0",
@@ -540,10 +651,10 @@ def build_simulator_payload(user_stat: dict, atk_value: int) -> dict:
     }
 
 
-async def fetch_pet_corrected_maplescouter_result(
+async def fetch_equipment_corrected_maplescouter_result(
     nickname: str,
     raw_data: dict,
-    atk_value: int,
+    correction: dict,
 ):
     if not MAPLESCOUTER_API_KEY:
         print("MAPLESCOUTER_API_KEY is not set")
@@ -555,7 +666,12 @@ async def fetch_pet_corrected_maplescouter_result(
         print("Failed to build userStat for dmg-simulator")
         return None
 
-    simulator = build_simulator_payload(user_stat, atk_value)
+    simulator = build_simulator_payload(
+        user_stat,
+        attack_delta=correction["attack"],
+        main_stat_delta=correction["main_stat"],
+        sub_stat_delta=correction["sub_stat"],
+    )
 
     api_url = "https://api.maplescouter.com/api/calc/dmg-simulator"
 
@@ -606,59 +722,13 @@ async def fetch_pet_corrected_maplescouter_result(
             "general_380": general_380,
             "hexa_380": hexa_380,
             "combat_power": data.get("combatPower"),
-            "pet_correction_applied": True,
-            "pet_attack_correction": atk_value,
+            "equipment_correction_applied": True,
+            "equipment_correction": correction,
         }
 
     except Exception as e:
         print("Maplescouter dmg-simulator error:", repr(e))
         return None
-
-
-
-# 임시 진단: 담아요란의 성공 응답만 프로세스당 한 번 기록합니다.
-# 보정 구현 후 이 진단 함수와 호출부를 제거하세요.
-_scouter_diagnostic_written = False
-
-
-def log_scouter_correction_diagnostic(nickname: str, data: dict):
-    global _scouter_diagnostic_written
-    if nickname != "담아요란" or _scouter_diagnostic_written:
-        return
-    if not isinstance(data, dict) or not isinstance(data.get("userStat"), dict):
-        return
-
-    def redact(value):
-        if isinstance(value, dict):
-            return {
-                key: ("[REDACTED]" if any(
-                    marker in str(key).lower()
-                    for marker in ("key", "token", "secret", "password", "authorization", "cookie")
-                ) else redact(item))
-                for key, item in value.items()
-            }
-        if isinstance(value, list):
-            return [redact(item) for item in value]
-        return value
-
-    try:
-        selected = {
-            "nickname": nickname,
-            "captured_at": datetime.now(timezone.utc).isoformat(),
-            "userStat": data["userStat"],
-            "userSpecialData": data.get("userSpecialData"),
-            "class": (data.get("calculatedData") or {}).get("class"),
-        }
-        encoded = json.dumps(redact(selected), ensure_ascii=False, separators=(",", ":"))
-        # UTF-8 기준 약 3KB 이하 조각으로 나누어 로그 잘림을 방지합니다.
-        chunks = [encoded[i:i + 700] for i in range(0, len(encoded), 700)]
-        record_id = str(time.time_ns())
-        for index, chunk in enumerate(chunks, 1):
-            print(f"SCOUTER_DIAG {record_id} {index}/{len(chunks)} {chunk}", flush=True)
-        _scouter_diagnostic_written = True
-    except Exception as error:
-        # 진단 기록 실패로 기존 환산 조회가 실패하지 않게 합니다.
-        print("SCOUTER_DIAG_ERROR", type(error).__name__, flush=True)
 
 
 async def fetch_maplescouter_api(nickname: str):
@@ -716,30 +786,32 @@ async def fetch_maplescouter_api(nickname: str):
 
         data = response.json()
 
-        log_scouter_correction_diagnostic(nickname, data)
-
         parsed = extract_maplescouter_values(data)
 
         if not parsed:
             print("Maplescouter parse failed:", data)
             return None
 
-        parsed["pet_correction_needed"] = needs_pet_attack_correction(nickname, data)
-        parsed["pet_correction_applied"] = False
-        parsed["pet_attack_correction"] = 0
+        correction = calculate_equipment_correction(nickname, data)
+        parsed["equipment_correction_needed"] = bool(
+            correction
+            and any(
+                correction[key] != 0
+                for key in ("attack", "main_stat", "sub_stat")
+            )
+        )
+        parsed["equipment_correction_applied"] = False
+        parsed["equipment_correction"] = correction
 
-        if parsed["pet_correction_needed"]:
-            atk_value = PET_ATTACK_CORRECTION[nickname]
-            corrected = await fetch_pet_corrected_maplescouter_result(
+        if parsed["equipment_correction_needed"]:
+            corrected = await fetch_equipment_corrected_maplescouter_result(
                 nickname=nickname,
                 raw_data=data,
-                atk_value=atk_value,
+                correction=correction,
             )
 
             if corrected:
                 parsed.update(corrected)
-            else:
-                parsed["pet_attack_correction"] = atk_value
 
         print("==== PARSED MAPLESCOUTER VALUES ====")
         print(parsed)
@@ -773,9 +845,9 @@ async def build_maplescouter_all_response(
                     "success": False,
                     "general_380": None,
                     "hexa_380": None,
-                    "pet_correction_needed": False,
-                    "pet_correction_applied": False,
-                    "pet_attack_correction": 0,
+                    "equipment_correction_needed": False,
+                    "equipment_correction_applied": False,
+                    "equipment_correction": None,
                 }
 
             return {
@@ -783,9 +855,9 @@ async def build_maplescouter_all_response(
                 "success": True,
                 "general_380": data.get("general_380"),
                 "hexa_380": data.get("hexa_380"),
-                "pet_correction_needed": data.get("pet_correction_needed", False),
-                "pet_correction_applied": data.get("pet_correction_applied", False),
-                "pet_attack_correction": data.get("pet_attack_correction", 0),
+                "equipment_correction_needed": data.get("equipment_correction_needed", False),
+                "equipment_correction_applied": data.get("equipment_correction_applied", False),
+                "equipment_correction": data.get("equipment_correction"),
             }
 
         except Exception as e:
@@ -796,9 +868,9 @@ async def build_maplescouter_all_response(
                 "success": False,
                 "general_380": None,
                 "hexa_380": None,
-                "pet_correction_needed": False,
-                "pet_correction_applied": False,
-                "pet_attack_correction": 0,
+                "equipment_correction_needed": False,
+                "equipment_correction_applied": False,
+                "equipment_correction": None,
             }
 
     results = await asyncio.gather(
@@ -822,14 +894,17 @@ async def build_maplescouter_all_response(
     for idx, r in enumerate(success_results, start=1):
         correction_text = ""
 
-        if r.get("pet_correction_applied"):
+        correction = r.get("equipment_correction") or {}
+
+        if r.get("equipment_correction_applied"):
             correction_text = (
-                f"\n   보정: 펫 누락 공+{r.get('pet_attack_correction')} 적용"
+                "\n   보정: 전투복/펫 "
+                f"공{correction.get('attack', 0):+d}, "
+                f"STR{correction.get('main_stat', 0):+d}, "
+                f"DEX{correction.get('sub_stat', 0):+d} 적용"
             )
-        elif r.get("pet_correction_needed"):
-            correction_text = (
-                f"\n   보정: 펫 누락 공+{r.get('pet_attack_correction')} 적용 실패"
-            )
+        elif r.get("equipment_correction_needed"):
+            correction_text = "\n   보정: 전투복/펫 적용 실패"
 
         lines.append(
             f"{idx}. {r['nickname']}\n"
@@ -1009,14 +1084,17 @@ async def make_maplescouter_card(nickname: str):
         f"헥사환산(380): {hexa_380}",
     ]
 
-    if result_data.get("pet_correction_applied"):
+    correction = result_data.get("equipment_correction") or {}
+
+    if result_data.get("equipment_correction_applied"):
         description_lines.append(
-            f"보정: 펫 누락으로 공격력 +{result_data.get('pet_attack_correction')} 적용"
+            "보정: 전투복/펫 "
+            f"공{correction.get('attack', 0):+d}, "
+            f"STR{correction.get('main_stat', 0):+d}, "
+            f"DEX{correction.get('sub_stat', 0):+d} 적용"
         )
-    elif result_data.get("pet_correction_needed"):
-        description_lines.append(
-            f"보정: 펫 누락 의심, 공격력 +{result_data.get('pet_attack_correction')} 적용 실패"
-        )
+    elif result_data.get("equipment_correction_needed"):
+        description_lines.append("보정: 전투복/펫 적용 실패")
 
     if combat_power:
         description_lines.append(f"전투력: {format_korean_number(combat_power)}")
@@ -1402,12 +1480,22 @@ async def kakao_skill(request: Request):
 
 
 @app.on_event("startup")
-async def capture_damayo_diagnostic_on_startup():
-    """Capture one sanitized Maplescouter sample after each diagnostic deploy."""
+async def verify_equipment_correction_on_startup():
     try:
-        await fetch_maplescouter_api("담아요란")
+        result = await fetch_maplescouter_api("담아요란")
+        if result:
+            print(
+                "EQUIPMENT_CORRECTION_VERIFY "
+                f"general={result.get('general_380')} "
+                f"hexa={result.get('hexa_380')} "
+                f"applied={result.get('equipment_correction_applied')} "
+                f"correction={result.get('equipment_correction')}",
+                flush=True,
+            )
+        else:
+            print("EQUIPMENT_CORRECTION_VERIFY no_result", flush=True)
     except Exception as exc:
         print(
-            f"SCOUTER_DIAG_STARTUP_ERROR {type(exc).__name__}",
+            f"EQUIPMENT_CORRECTION_VERIFY error={type(exc).__name__}",
             flush=True,
         )
