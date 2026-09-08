@@ -1399,3 +1399,15 @@ async def kakao_skill(request: Request):
         "3. 경험치 조회\n"
         "경험치 닉네임\n"
     )
+
+
+@app.on_event("startup")
+async def capture_damayo_diagnostic_on_startup():
+    """Capture one sanitized Maplescouter sample after each diagnostic deploy."""
+    try:
+        await fetch_maplescouter_api("담아요란")
+    except Exception as exc:
+        print(
+            f"SCOUTER_DIAG_STARTUP_ERROR {type(exc).__name__}",
+            flush=True,
+        )
