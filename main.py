@@ -45,6 +45,13 @@ CHALLENGE_CHARACTERS = [
     "레테맹이",
 ]
 
+SUB_CHARACTERS = [
+    "담요가좋아요",
+    "다람지스터",
+    "최껌귀",
+    "로렌치안",
+]
+
 
 EQUIPMENT_TARGET_CORRECTION = {
     "담아요란": {
@@ -113,6 +120,10 @@ MAPLESCOUTER_ALL_CACHES = {
         "text": None,
     },
     "challenge": {
+        "saved_time": 0,
+        "text": None,
+    },
+    "sub": {
         "saved_time": 0,
         "text": None,
     },
@@ -1280,6 +1291,13 @@ async def handle_maplescouter_command(utterance: str):
             title="[ 챌섭 환산 전체 조회 ]",
         )
 
+    if re.fullmatch(r"!?부캐환산\s*(all|전체)", normalized, re.IGNORECASE):
+        return await make_maplescouter_all_result(
+            cache_key="sub",
+            character_names=SUB_CHARACTERS,
+            title="[ 부캐 환산 전체 조회 ]",
+        )
+
     # 개별 환산 조회
     match = re.search(r"^!?환산\s+(.+?)\s*$", normalized)
 
@@ -1518,6 +1536,7 @@ async def kakao_skill(request: Request):
         "1. 환산 조회\n"
         "환산 닉네임\n"
         "환산 all\n"
+        "부캐환산 all\n"
         "챌섭환산 all\n\n"
         "2. 보스 분배 계산기\n"
         "분배계산기\n"
