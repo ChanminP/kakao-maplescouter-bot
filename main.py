@@ -1477,25 +1477,3 @@ async def kakao_skill(request: Request):
         "3. 경험치 조회\n"
         "경험치 닉네임\n"
     )
-
-
-@app.on_event("startup")
-async def verify_equipment_correction_on_startup():
-    try:
-        result = await fetch_maplescouter_api("담아요란")
-        if result:
-            print(
-                "EQUIPMENT_CORRECTION_VERIFY "
-                f"general={result.get('general_380')} "
-                f"hexa={result.get('hexa_380')} "
-                f"applied={result.get('equipment_correction_applied')} "
-                f"correction={result.get('equipment_correction')}",
-                flush=True,
-            )
-        else:
-            print("EQUIPMENT_CORRECTION_VERIFY no_result", flush=True)
-    except Exception as exc:
-        print(
-            f"EQUIPMENT_CORRECTION_VERIFY error={type(exc).__name__}",
-            flush=True,
-        )
