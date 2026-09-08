@@ -48,11 +48,52 @@ CHALLENGE_CHARACTERS = [
 
 EQUIPMENT_TARGET_CORRECTION = {
     "담아요란": {
-        # 전투복: 공 90, STR 189, DEX 170
-        # 펫장비 공 130 + 펫 세트효과 공 24
         "attack": 244,
         "main_stat": 189,
         "sub_stat": 170,
+        "main_stat_name": "STR",
+        "sub_stat_name": "DEX",
+        "power_type": "attack",
+    },
+    "담요가좋아요": {
+        "attack": 244,
+        "main_stat": 170,
+        "sub_stat": 189,
+        "main_stat_name": "DEX",
+        "sub_stat_name": "STR",
+        "power_type": "attack",
+    },
+    "다람지스터": {
+        "attack": 244,
+        "main_stat": 189,
+        "sub_stat": 170,
+        "main_stat_name": "STR",
+        "sub_stat_name": "DEX",
+        "power_type": "attack",
+    },
+    "다람지맹이": {
+        "attack": 134,
+        "main_stat": 186,
+        "sub_stat": 170,
+        "main_stat_name": "INT",
+        "sub_stat_name": "LUK",
+        "power_type": "magic",
+    },
+    "담요네바이퍼": {
+        "attack": 244,
+        "main_stat": 189,
+        "sub_stat": 170,
+        "main_stat_name": "STR",
+        "sub_stat_name": "DEX",
+        "power_type": "attack",
+    },
+    "다람지수": {
+        "attack": 134,
+        "main_stat": 186,
+        "sub_stat": 170,
+        "main_stat_name": "INT",
+        "sub_stat_name": "LUK",
+        "power_type": "magic",
     },
 }
 
@@ -474,14 +515,17 @@ def calculate_equipment_correction(nickname: str, data: dict):
     pet_bonus = sum_item_options(special_data.get("userPetEquipData"))
     pet_set_attack = get_pet_set_attack(special_data.get("userPetData"))
 
-    current_attack = cash_bonus["attack"] + pet_bonus["attack"] + pet_set_attack
-    current_main_stat = cash_bonus["STR"]
-    current_sub_stat = cash_bonus["DEX"]
+    power_type = target["power_type"]
+    current_attack = cash_bonus[power_type] + pet_bonus[power_type] + pet_set_attack
+    current_main_stat = cash_bonus[target["main_stat_name"]]
+    current_sub_stat = cash_bonus[target["sub_stat_name"]]
 
     return {
         "attack": target["attack"] - current_attack,
         "main_stat": target["main_stat"] - current_main_stat,
         "sub_stat": target["sub_stat"] - current_sub_stat,
+        "main_stat_name": target["main_stat_name"],
+        "sub_stat_name": target["sub_stat_name"],
         "current_attack": current_attack,
         "current_main_stat": current_main_stat,
         "current_sub_stat": current_sub_stat,
@@ -900,8 +944,10 @@ async def build_maplescouter_all_response(
             correction_text = (
                 "\n   보정: 전투복/펫 "
                 f"공{correction.get('attack', 0):+d}, "
-                f"STR{correction.get('main_stat', 0):+d}, "
-                f"DEX{correction.get('sub_stat', 0):+d} 적용"
+                f"{correction.get('main_stat_name', '주스탯')}"
+                f"{correction.get('main_stat', 0):+d}, "
+                f"{correction.get('sub_stat_name', '부스탯')}"
+                f"{correction.get('sub_stat', 0):+d} 적용"
             )
         elif r.get("equipment_correction_needed"):
             correction_text = "\n   보정: 전투복/펫 적용 실패"
@@ -1090,8 +1136,10 @@ async def make_maplescouter_card(nickname: str):
         description_lines.append(
             "보정: 전투복/펫 "
             f"공{correction.get('attack', 0):+d}, "
-            f"STR{correction.get('main_stat', 0):+d}, "
-            f"DEX{correction.get('sub_stat', 0):+d} 적용"
+            f"{correction.get('main_stat_name', '주스탯')}"
+            f"{correction.get('main_stat', 0):+d}, "
+            f"{correction.get('sub_stat_name', '부스탯')}"
+            f"{correction.get('sub_stat', 0):+d} 적용"
         )
     elif result_data.get("equipment_correction_needed"):
         description_lines.append("보정: 전투복/펫 적용 실패")
@@ -1477,3 +1525,36 @@ async def kakao_skill(request: Request):
         "3. 경험치 조회\n"
         "경험치 닉네임\n"
     )
+
+
+@app.on_event("startup")
+async def verify_sub_character_corrections_on_startup():
+    for nickname in (
+        "담요가좋아요",
+        "다람지스터",
+        "다람지맹이",
+        "담요네바이퍼",
+        "다람지수",
+    ):
+        try:
+            result = await fetch_maplescouter_api(nickname)
+            if result:
+                print(
+                    "SUB_CHARACTER_CORRECTION_VERIFY "
+                    f"nickname={nickname} "
+                    f"hexa={result.get('hexa_380')} "
+                    f"applied={result.get('equipment_correction_applied')} "
+                    f"correction={result.get('equipment_correction')}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"SUB_CHARACTER_CORRECTION_VERIFY nickname={nickname} no_result",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(
+                "SUB_CHARACTER_CORRECTION_VERIFY "
+                f"nickname={nickname} error={type(exc).__name__}",
+                flush=True,
+            )
