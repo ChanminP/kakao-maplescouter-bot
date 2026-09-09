@@ -121,8 +121,6 @@ PET_SET_ATTACK_BY_TYPE = {
 
 # 마스터라벨 전투 플러스는 월드 내 모든 캐릭터에 공유된다.
 # 다람지맹이가 5개를 착용 중이므로 보정 대상 계정은 현재/목표 모두 5단계다.
-
-MASTER_LABEL_PLUS_ACTIVE_COUNT = 5
 MASTER_LABEL_PLUS_TARGET_COUNT = 5
 MASTER_LABEL_PLUS_BONUS = {
     0: (0, 0),
@@ -576,9 +574,7 @@ def calculate_equipment_correction(nickname: str, data: dict):
     cash_bonus = sum_item_options(user_cash_equip_data)
     pet_bonus = sum_item_options(special_data.get("userPetEquipData"))
     pet_set_attack = get_pet_set_attack(special_data.get("userPetData"))
-
-    equipped_master_label_count = get_master_label_count(user_cash_equip_data)
-    current_master_label_count = MASTER_LABEL_PLUS_ACTIVE_COUNT
+    current_master_label_count = get_master_label_count(user_cash_equip_data)
     current_plus_attack, current_plus_all_stat = MASTER_LABEL_PLUS_BONUS[
         current_master_label_count
     ]
@@ -616,7 +612,7 @@ def calculate_equipment_correction(nickname: str, data: dict):
         "current_main_stat": current_main_stat,
         "current_sub_stat": current_sub_stat,
         "current_master_label_count": current_master_label_count,
-        "equipped_master_label_count": equipped_master_label_count,
+        
     }
 
 
