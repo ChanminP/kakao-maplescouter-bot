@@ -135,6 +135,7 @@ MASTER_LABEL_PLUS_BONUS = {
 # (key, 표시명, 내부명, 레벨, 아케인포스, 어센틱포스, 방어율,
 #  솔로 컷, 파티 컷, 난이도 보정값)
 BOSS_RATIO_BOSSES = [
+    ("hard_jupiter", "하드 유피테르", "jupiter", 295, None, 810, 380, None, 111700, 0.6211884132633945),
     ("extreme_kaling", "익스트림 카링", "kaling", 285, None, 480, 380, None, 108350, 0.9978417870710661),
     ("extreme_adversary", "익스트림 대적자", "adversary", 290, None, 460, 380, 108100, None, 0.2881753663003663),
     ("extreme_kalos", "익스트림 칼로스", "kalos", 285, None, 440, 380, 90900, None, 0.22694444444444445),
@@ -181,6 +182,13 @@ BOSS_RATIO_BOSSES = [
     ("normal_lotus", "노멀 스우", "lotus", 210, None, None, 300, 40600, None, 351.816362254117),
     ("normal_damien", "노멀 데미안", "damien", 210, None, None, 300, 40600, None, 370.36682388732635),
 ]
+
+# partyBossCut을 사용하는 보스의 최소컷 인원수. 계산된 파티 배율을
+# 인원수로 나눠 캐릭터 한 명의 배율로 환산한다.
+BOSS_RATIO_PARTY_LIMITS = {
+    "hard_jupiter": 3,
+    "extreme_kaling": 6,
+}
 
 MAPLESCOUTER_ALL_CACHE_TTL = 300
 
@@ -561,7 +569,13 @@ def calculate_boss_ratios(calculated_data: dict, user_stat: dict) -> dict[str, d
         )
         results[key] = {
             "label": label,
-            "rate": adjusted_damage / target_damage * easy_rate * 100,
+            "rate": (
+                adjusted_damage
+                / target_damage
+                * easy_rate
+                * 100
+                / BOSS_RATIO_PARTY_LIMITS.get(key, 1)
+            ),
         }
 
     return results
@@ -575,24 +589,43 @@ def normalize_boss_query(query: str) -> str:
 def find_boss_ratio_key(query: str) -> str | None:
     normalized = normalize_boss_query(query)
     aliases = {
-        "하세": "hard_seren", "세렌": "hard_seren",
+        "하세": "hard_seren",
         "익세": "extreme_seren",
-        "검마": "hard_black_mage", "하검": "hard_black_mage",
+        "노세": "normal_seren",
+        "하검": "hard_black_mage",
         "익검": "extreme_black_mage", "익검마": "extreme_black_mage",
-        "카칼": "chaos_kalos", "칼로스": "chaos_kalos",
+        "카칼": "chaos_kalos",
         "익칼": "extreme_kalos", "노칼": "normal_kalos",
-        "하카링": "hard_kaling", "카링": "hard_kaling",
-        "익카링": "extreme_kaling", "노카링": "normal_kaling",
-        "이지카링": "easy_kaling",
-        "익스우": "extreme_lotus", "스우": "extreme_lotus",
+        "이칼": "easy_kalos",
+        "하카링": "hard_kaling", "하카": "hard_kaling",
+        "익카링": "extreme_kaling", "익카": "extreme_kaling",
+        "노카링": "normal_kaling", "노카": "normal_kaling",
+        "이지카링": "easy_kaling", "이카": "easy_kaling",
+        "익적자": "extreme_adversary", "익대": "extreme_adversary",
+        "익적": "extreme_adversary", "익쌀": "extreme_adversary",
+        "하적자": "hard_adversary", "하대": "hard_adversary",
+        "하적": "hard_adversary", "하쌀": "hard_adversary",
+        "노적자": "normal_adversary", "노대": "normal_adversary",
+        "노적": "normal_adversary", "노쌀": "normal_adversary",
+        "이적자": "easy_adversary", "이대": "easy_adversary",
+        "이적": "easy_adversary", "이쌀": "easy_adversary",
+        "하발": "hard_bardrix", "노발": "normal_bardrix",
+        "하벨": "hard_bellona", "노벨": "normal_bellona",
+        "하림": "hard_limbo", "노림": "normal_limbo",
+        "하흉": "hard_malefic_star", "노흉": "normal_malefic_star",
+        "하유": "hard_jupiter", "노유": "normal_jupiter",
+        "익스우": "extreme_lotus",
         "하스우": "hard_lotus", "노스우": "normal_lotus",
-        "하진힐": "hard_verus_hilla", "진힐": "hard_verus_hilla",
-        "하듄": "hard_darknell", "듄켈": "hard_darknell",
-        "카더": "chaos_gloom", "더스크": "chaos_gloom",
-        "카엔슬": "chaos_slime", "가엔슬": "chaos_slime",
-        "하윌": "hard_will", "윌": "hard_will",
-        "하루시": "hard_lucid", "루시드": "hard_lucid",
-        "하데미": "hard_damien", "데미안": "hard_damien",
+        "하진힐": "hard_verus_hilla", "하힐": "hard_verus_hilla",
+        "노진힐": "normal_verus_hilla",
+        "하듄": "hard_darknell", "노듄": "normal_darknell",
+        "카더": "chaos_gloom", "노더": "normal_gloom",
+        "카엔슬": "chaos_slime", "노엔슬": "normal_slime",
+        "하윌": "hard_will", "노윌": "normal_will", "이윌": "easy_will",
+        "하루시": "hard_lucid", "노루시": "normal_lucid",
+        "이루시": "easy_lucid",
+        "하데미": "hard_damien", "하뎀": "hard_damien",
+        "노뎀": "normal_damien", "노데": "normal_damien",
     }
 
     if normalized in aliases:
@@ -1559,6 +1592,7 @@ async def make_boss_ratio_card(nickname: str, boss_query: str | None = None):
         if not boss_key:
             return simple_text(
                 f"'{boss_query}' 보스를 찾지 못했어요.\n\n"
+                "난이도를 포함해서 입력해주세요.\n"
                 "예시:\n"
                 "보스배율 담아요란 하드세렌\n"
                 "보스배율 담아요란 하드 세렌\n"
@@ -1695,7 +1729,11 @@ async def handle_maplescouter_command(utterance: str):
     normalized = normalized.replace("\ufeff", "")
     normalized = re.sub(r"\s+", " ", normalized)
 
-    if re.fullmatch(r"!?보스배율\s*(all|전체)", normalized, re.IGNORECASE):
+    boss_command = r"(?:보스배율|배율|보스)"
+
+    if re.fullmatch(
+        rf"!?{boss_command}\s*(all|전체)", normalized, re.IGNORECASE
+    ):
         return simple_text(
             "보스배율은 캐릭터 한 명씩 조회할 수 있어요.\n\n"
             "예시:\n"
@@ -1704,7 +1742,7 @@ async def handle_maplescouter_command(utterance: str):
         )
 
     boss_match = re.fullmatch(
-        r"!?보스배율\s+(\S+)(?:\s+(.+?))?",
+        rf"!?{boss_command}\s+(\S+)(?:\s+(.+?))?",
         normalized,
         re.IGNORECASE,
     )
@@ -1979,6 +2017,8 @@ async def kakao_skill(request: Request):
         "챌섭환산 all\n\n"
         "2. 보스 배율 조회\n"
         "보스배율 닉네임\n"
+        "배율 닉네임\n"
+        "보스 닉네임\n"
         "보스배율 닉네임 하드 세렌\n"
         "보스배율 닉네임 하세\n\n"
         "3. 보스 분배 계산기\n"
