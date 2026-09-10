@@ -26,6 +26,7 @@ MAPLESCOUTER_API_KEY = os.getenv("MAPLESCOUTER_API_KEY", "").strip()
 # Maplescouter API cache
 MAPLESCOUTER_CACHE = {}
 MAPLESCOUTER_CACHE_TTL = 300  # 5 minutes
+MAPLESCOUTER_STALE_CACHE_TTL = 3600  # API 장애 시 최대 1시간 전 결과 사용
 
 ALL_CHARACTERS = [
     "병찬형",
@@ -119,8 +120,7 @@ PET_SET_ATTACK_BY_TYPE = {
     "루나 쁘띠": (0, 8, 18, 36),
 }
 
-# 마스터라벨 전투 플러스는 월드 내 모든 캐릭터에 공유된다.
-# 다람지맹이가 5개를 착용 중이므로 보정 대상 계정은 현재/목표 모두 5단계다.
+# 다람지맹이가 착용한 마스터라벨 5개 기준의 전투 플러스 목표
 MASTER_LABEL_PLUS_TARGET_COUNT = 5
 MASTER_LABEL_PLUS_BONUS = {
     0: (0, 0),
@@ -130,6 +130,57 @@ MASTER_LABEL_PLUS_BONUS = {
     4: (40, 90),
     5: (60, 140),
 }
+
+# Maplescouter 결과 페이지의 주요 보스 기준값.
+# (key, 표시명, 내부명, 레벨, 아케인포스, 어센틱포스, 방어율,
+#  솔로 컷, 파티 컷, 난이도 보정값)
+BOSS_RATIO_BOSSES = [
+    ("extreme_kaling", "익스트림 카링", "kaling", 285, None, 480, 380, None, 108350, 0.9978417870710661),
+    ("extreme_adversary", "익스트림 대적자", "adversary", 290, None, 460, 380, 108100, None, 0.2881753663003663),
+    ("extreme_kalos", "익스트림 칼로스", "kalos", 285, None, 440, 380, 90900, None, 0.22694444444444445),
+    ("hard_bardrix", "하드 발드릭스", "bardrix", 290, None, 700, 380, 129900, None, 0.95),
+    ("hard_bellona", "하드 벨로나", "bellona", 280, None, 550, 380, 128200, None, 1.05),
+    ("hard_limbo", "하드 림보", "limbo", 285, None, 500, 380, 118900, None, 0.95),
+    ("hard_malefic_star", "하드 흉성", "maleficStar", 280, None, 550, 380, 117500, None, 0.95),
+    ("normal_jupiter", "노멀 유피테르", "jupiter", 295, None, 810, 380, 111700, None, 0.95),
+    ("hard_adversary", "하드 대적자", "adversary", 285, None, 340, 380, 108100, None, 0.95),
+    ("normal_bardrix", "노멀 발드릭스", "bardrix", 290, None, 700, 380, 129900, None, 2.1324112191250864),
+    ("hard_kaling", "하드 카링", "kaling", 285, None, 350, 380, 105800, None, 0.95),
+    ("extreme_seren", "익스트림 세렌", "seren", 280, None, 200, 380, 105700, None, 0.95),
+    ("extreme_black_mage", "익스트림 검은 마법사", "blackMage", 280, 1320, None, 300, 94500, None, 0.95),
+    ("normal_limbo", "노멀 림보", "limbo", 285, None, 500, 380, 118900, None, 1.8890409456118664),
+    ("chaos_kalos", "카오스 칼로스", "kalos", 285, None, 330, 380, 90900, None, 0.95),
+    ("normal_bellona", "노멀 벨로나", "bellona", 280, None, 450, 380, 128200, None, 3.5570596797671037),
+    ("normal_kaling", "노멀 카링", "kaling", 285, None, 330, 380, 105800, None, 2.7877201738381996),
+    ("normal_malefic_star", "노멀 흉성", "maleficStar", 280, None, 400, 380, 117500, None, 4.297226209857768),
+    ("extreme_lotus", "익스트림 스우", "lotus", 285, None, None, 380, 64500, None, 0.9704301075268816),
+    ("normal_adversary", "노멀 대적자", "adversary", 280, None, 320, 380, 108100, None, 6.114009582055534),
+    ("normal_kalos", "노멀 칼로스", "kalos", 280, None, 300, 380, 90900, None, 4.538042210617321),
+    ("easy_kaling", "이지 카링", "kaling", 275, None, 230, 380, 105800, None, 10.810543864615774),
+    ("hard_seren", "하드 세렌", "seren", 275, None, 200, 380, 105700, None, 12.024382455908201),
+    ("easy_adversary", "이지 대적자", "adversary", 270, None, 220, 380, 108100, None, 17.611309480434308),
+    ("easy_kalos", "이지 칼로스", "kalos", 270, None, 200, 380, 90900, None, 13.228148215097784),
+    ("hard_black_mage", "하드 검은 마법사", "blackMage", 275, 1320, None, 300, 40600, None, 2.545164534839632),
+    ("normal_seren", "노멀 세렌", "seren", 270, None, 200, 380, 105700, None, 27.764644554762043),
+    ("hard_verus_hilla", "하드 진 힐라", "verusHilla", 250, 900, None, 300, 40600, None, 4.487233424104273),
+    ("hard_darknell", "하드 듄켈", "darknell", 265, 850, None, 300, 40600, None, 5.130649740631866),
+    ("chaos_gloom", "카오스 더스크", "gloom", 255, 730, None, 300, 40600, None, 5.406297958849231),
+    ("chaos_slime", "카오스 가엔슬", "slime", 250, None, None, 300, 40600, None, 4.4679381059882015),
+    ("hard_will", "하드 윌", "will", 250, 760, None, 300, 40600, None, 6.422561818941498),
+    ("hard_lucid", "하드 루시드", "lucid", 230, 360, None, 300, 40600, None, 2.942934782608695),
+    ("normal_verus_hilla", "노멀 진 힐라", "verusHilla", 250, 820, None, 300, 40600, None, 8.974466848208547),
+    ("hard_damien", "하드 데미안", "damien", 210, None, None, 300, 40600, None, 12.345560796244213),
+    ("hard_lotus", "하드 스우", "lotus", 210, None, None, 300, 40600, None, 16.48811011161086),
+    ("normal_darknell", "노멀 듄켈", "darknell", 265, 850, None, 300, 40600, None, 32.32309336598076),
+    ("normal_gloom", "노멀 더스크", "gloom", 255, 730, None, 300, 40600, None, 27.031489794246152),
+    ("normal_lucid", "노멀 루시드", "lucid", 230, 360, None, 300, 40600, None, 33.658443132448376),
+    ("normal_will", "노멀 윌", "will", 250, 760, None, 300, 40600, None, 32.11280909470749),
+    ("easy_will", "이지 윌", "will", 235, 560, None, 300, 40600, None, 48.16921364206122),
+    ("easy_lucid", "이지 루시드", "lucid", 230, 360, None, 300, 40600, None, 58.03722203679182),
+    ("normal_slime", "노멀 가엔슬", "slime", 220, None, None, 300, 40600, None, 80.42288590778763),
+    ("normal_lotus", "노멀 스우", "lotus", 210, None, None, 300, 40600, None, 351.816362254117),
+    ("normal_damien", "노멀 데미안", "damien", 210, None, None, 300, 40600, None, 370.36682388732635),
+]
 
 MAPLESCOUTER_ALL_CACHE_TTL = 300
 
@@ -346,7 +397,6 @@ def get_cached_maplescouter(nickname: str):
     saved_time, data = cached
 
     if time.time() - saved_time > MAPLESCOUTER_CACHE_TTL:
-        MAPLESCOUTER_CACHE.pop(nickname, None)
         return None
 
     return data
@@ -354,6 +404,218 @@ def get_cached_maplescouter(nickname: str):
 
 def set_cached_maplescouter(nickname: str, data: dict):
     MAPLESCOUTER_CACHE[nickname] = (time.time(), data)
+
+
+def get_stale_cached_maplescouter(nickname: str):
+    cached = MAPLESCOUTER_CACHE.get(nickname)
+
+    if not cached:
+        return None
+
+    saved_time, data = cached
+    age = time.time() - saved_time
+
+    if age > MAPLESCOUTER_STALE_CACHE_TTL:
+        MAPLESCOUTER_CACHE.pop(nickname, None)
+        return None
+
+    stale_data = dict(data)
+    stale_data["cache_stale"] = age > MAPLESCOUTER_CACHE_TTL
+    return stale_data
+
+
+def number_or_zero(value) -> float:
+    try:
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def level_gap_damage_multiplier(character_level: int, boss_level: int) -> float:
+    gap = max(-40, min(5, character_level - boss_level))
+    positive = {0: 1.10, 1: 1.12, 2: 1.14, 3: 1.16, 4: 1.18, 5: 1.20}
+    special_negative = {-1: 1.053, -2: 1.007, -3: 0.962, -4: 0.918}
+
+    if gap >= 0:
+        return positive[gap]
+    if gap in special_negative:
+        return special_negative[gap]
+    return max(0.0, 1.0 + gap * 0.025)
+
+
+def arcane_force_damage_multiplier(character_force: float, boss_force: int | None) -> float:
+    if not boss_force:
+        return 1.0
+
+    ratio = character_force / boss_force * 100
+    for threshold, multiplier in (
+        (10, 0.10), (30, 0.30), (50, 0.60), (70, 0.70),
+        (100, 0.80), (110, 1.00), (130, 1.10), (150, 1.30),
+    ):
+        if ratio < threshold:
+            return multiplier
+    return 1.50
+
+
+def authentic_force_damage_multiplier(character_force: float, boss_force: int | None) -> float:
+    if not boss_force:
+        return 1.0
+
+    gap = character_force - boss_force
+    for threshold, multiplier in (
+        (-90, 0.05), (-80, 0.10), (-70, 0.20), (-60, 0.30),
+        (-50, 0.40), (-40, 0.50), (-30, 0.60), (-20, 0.70),
+        (-10, 0.80), (0, 0.90), (10, 1.00), (20, 1.05),
+        (30, 1.10), (40, 1.15), (50, 1.20),
+    ):
+        if gap < threshold:
+            return multiplier
+    return 1.25
+
+
+def evaluate_damage_spline(spline: dict, target: float) -> float | None:
+    if not isinstance(spline, dict):
+        return None
+
+    x = spline.get("x")
+    y = spline.get("y")
+    m = spline.get("m")
+
+    if not all(isinstance(values, list) for values in (x, y, m)):
+        return None
+    if not x or not (len(x) == len(y) == len(m)):
+        return None
+
+    x = [number_or_zero(value) for value in x]
+    y = [number_or_zero(value) for value in y]
+    m = [number_or_zero(value) for value in m]
+
+    if target < x[0]:
+        return y[0] + (target - x[0]) * m[0]
+
+    if target <= x[-1]:
+        for index in range(len(x) - 1):
+            if x[index] <= target <= x[index + 1]:
+                length = x[index + 1] - x[index]
+                if length <= 0:
+                    return None
+                offset = (target - x[index]) / length
+                squared = offset * offset
+                cubed = squared * offset
+                return (
+                    (2 * cubed - 3 * squared + 1) * y[index]
+                    + (cubed - 2 * squared + offset) * length * m[index]
+                    + (-2 * cubed + 3 * squared) * y[index + 1]
+                    + (cubed - squared) * length * m[index + 1]
+                )
+
+    return y[-1] + (target - x[-1]) * max(m[-1], 1e-9)
+
+
+def calculate_boss_ratios(calculated_data: dict, user_stat: dict) -> dict[str, dict]:
+    if not isinstance(calculated_data, dict) or not isinstance(user_stat, dict):
+        return {}
+
+    stat = user_stat.get("stat", user_stat)
+    if not isinstance(stat, dict):
+        return {}
+
+    character_level = int(number_or_zero(stat.get("level")))
+    arcane_force = number_or_zero(stat.get("arcaneForce"))
+    authentic_force = number_or_zero(stat.get("authenticForce"))
+    results = {}
+
+    for boss in BOSS_RATIO_BOSSES:
+        (
+            key, label, internal_name, boss_level, boss_arcane_force,
+            boss_authentic_force, guard, boss_cut, party_boss_cut, easy_rate,
+        ) = boss
+        damage_key = "calculatedHexaDamage_300" if guard == 300 else "calculatedHexaDamage_380"
+        spline_key = "spline_300" if guard == 300 else "spline_380"
+        calculated_damage = number_or_zero(calculated_data.get(damage_key))
+        target_cut = party_boss_cut if party_boss_cut is not None else boss_cut
+        target_damage = evaluate_damage_spline(
+            calculated_data.get(spline_key), number_or_zero(target_cut)
+        )
+
+        if calculated_damage <= 0 or not target_damage or target_damage <= 0:
+            continue
+
+        level_multiplier = level_gap_damage_multiplier(character_level, boss_level)
+        arcane_multiplier = arcane_force_damage_multiplier(
+            arcane_force, boss_arcane_force
+        )
+        authentic_multiplier = authentic_force_damage_multiplier(
+            authentic_force, boss_authentic_force
+        )
+        arcane_normalizer = 1.0
+        if boss_arcane_force:
+            arcane_normalizer = 1.1 if internal_name == "blackMage" else 1.5
+        authentic_normalizer = 1.25 if boss_authentic_force else 1.0
+        adjusted_damage = (
+            calculated_damage
+            * level_multiplier
+            * arcane_multiplier
+            * authentic_multiplier
+            / (1.2 * arcane_normalizer * authentic_normalizer)
+        )
+        results[key] = {
+            "label": label,
+            "rate": adjusted_damage / target_damage * easy_rate * 100,
+        }
+
+    return results
+
+
+def normalize_boss_query(query: str) -> str:
+    normalized = re.sub(r"\s+", "", query).lower()
+    return normalized.replace("노말", "노멀")
+
+
+def find_boss_ratio_key(query: str) -> str | None:
+    normalized = normalize_boss_query(query)
+    aliases = {
+        "하세": "hard_seren", "세렌": "hard_seren",
+        "익세": "extreme_seren",
+        "검마": "hard_black_mage", "하검": "hard_black_mage",
+        "익검": "extreme_black_mage", "익검마": "extreme_black_mage",
+        "카칼": "chaos_kalos", "칼로스": "chaos_kalos",
+        "익칼": "extreme_kalos", "노칼": "normal_kalos",
+        "하카링": "hard_kaling", "카링": "hard_kaling",
+        "익카링": "extreme_kaling", "노카링": "normal_kaling",
+        "이지카링": "easy_kaling",
+        "익스우": "extreme_lotus", "스우": "extreme_lotus",
+        "하스우": "hard_lotus", "노스우": "normal_lotus",
+        "하진힐": "hard_verus_hilla", "진힐": "hard_verus_hilla",
+        "하듄": "hard_darknell", "듄켈": "hard_darknell",
+        "카더": "chaos_gloom", "더스크": "chaos_gloom",
+        "카엔슬": "chaos_slime", "가엔슬": "chaos_slime",
+        "하윌": "hard_will", "윌": "hard_will",
+        "하루시": "hard_lucid", "루시드": "hard_lucid",
+        "하데미": "hard_damien", "데미안": "hard_damien",
+    }
+
+    if normalized in aliases:
+        return aliases[normalized]
+
+    for key, label, *_ in BOSS_RATIO_BOSSES:
+        label_key = normalize_boss_query(label)
+        if normalized == label_key:
+            return key
+        if normalized == label_key.replace("익스트림", "익스"):
+            return key
+        if normalized == label_key.replace("익스트림", "익"):
+            return key
+        if normalized == label_key.replace("카오스", "카"):
+            return key
+        if normalized == label_key.replace("하드", "하"):
+            return key
+        if normalized == label_key.replace("노멀", "노"):
+            return key
+        if normalized == label_key.replace("이지", "이"):
+            return key
+
+    return None
 
 
 def find_first_key(data, keys):
@@ -574,6 +836,7 @@ def calculate_equipment_correction(nickname: str, data: dict):
     cash_bonus = sum_item_options(user_cash_equip_data)
     pet_bonus = sum_item_options(special_data.get("userPetEquipData"))
     pet_set_attack = get_pet_set_attack(special_data.get("userPetData"))
+
     current_master_label_count = get_master_label_count(user_cash_equip_data)
     current_plus_attack, current_plus_all_stat = MASTER_LABEL_PLUS_BONUS[
         current_master_label_count
@@ -612,7 +875,6 @@ def calculate_equipment_correction(nickname: str, data: dict):
         "current_main_stat": current_main_stat,
         "current_sub_stat": current_sub_stat,
         "current_master_label_count": current_master_label_count,
-        
     }
 
 
@@ -850,6 +1112,7 @@ async def fetch_equipment_corrected_maplescouter_result(
             "general_380": general_380,
             "hexa_380": hexa_380,
             "combat_power": data.get("combatPower"),
+            "boss_ratios": calculate_boss_ratios(data, user_stat),
             "equipment_correction_applied": True,
             "equipment_correction": correction,
         }
@@ -865,9 +1128,11 @@ async def fetch_maplescouter_api(nickname: str):
     if cached:
         return cached
 
+    stale_cached = get_stale_cached_maplescouter(nickname)
+
     if not MAPLESCOUTER_API_KEY:
         print("MAPLESCOUTER_API_KEY is not set")
-        return None
+        return stale_cached
 
     api_url = "https://api.maplescouter.com/api/id"
 
@@ -910,7 +1175,7 @@ async def fetch_maplescouter_api(nickname: str):
         print("===================================")
 
         if response.status_code not in {200, 201}:
-            return None
+            return stale_cached
 
         data = response.json()
 
@@ -918,7 +1183,12 @@ async def fetch_maplescouter_api(nickname: str):
 
         if not parsed:
             print("Maplescouter parse failed:", data)
-            return None
+            return stale_cached
+
+        parsed["boss_ratios"] = calculate_boss_ratios(
+            data.get("calculatedData", data),
+            data.get("userStat", {}),
+        )
 
         correction = calculate_equipment_correction(nickname, data)
         parsed["equipment_correction_needed"] = bool(
@@ -952,7 +1222,7 @@ async def fetch_maplescouter_api(nickname: str):
 
     except Exception as e:
         print("Maplescouter API error:", repr(e))
-        return None
+        return stale_cached
 
 
 async def build_maplescouter_all_response(
@@ -1272,6 +1542,76 @@ async def make_maplescouter_card(nickname: str):
     }
 
 
+def format_boss_ratio(value: float) -> str:
+    return f"{value:,.2f}%"
+
+
+async def make_boss_ratio_card(nickname: str, boss_query: str | None = None):
+    if not is_valid_nickname(nickname):
+        return simple_text(
+            f"'{nickname}' 닉네임 형식이 올바르지 않아요.\n"
+            "예시: 보스배율 담아요란 하드 세렌"
+        )
+
+    boss_key = None
+    if boss_query:
+        boss_key = find_boss_ratio_key(boss_query)
+        if not boss_key:
+            return simple_text(
+                f"'{boss_query}' 보스를 찾지 못했어요.\n\n"
+                "예시:\n"
+                "보스배율 담아요란 하드세렌\n"
+                "보스배율 담아요란 하드 세렌\n"
+                "보스배율 담아요란 하세"
+            )
+
+    result_data = await fetch_maplescouter_api(nickname)
+    if not result_data:
+        return simple_text(
+            f"{nickname} 님의 보스 배율을 불러오지 못했어요.\n"
+            "잠시 후 다시 시도해주세요."
+        )
+
+    boss_ratios = result_data.get("boss_ratios") or {}
+    if boss_key:
+        selected = [boss_ratios[boss_key]] if boss_key in boss_ratios else []
+    else:
+        # 기본 목록은 데스티니/챔피언을 제외하고 현재 배율이
+        # 30% 이상 200% 이하인 보스만 진행 순서대로 표시한다.
+        selected = []
+        for key, label, *_ in BOSS_RATIO_BOSSES:
+            boss = boss_ratios.get(key)
+            if not boss:
+                continue
+            if label.startswith(("데스티니 ", "챔피언 ")):
+                continue
+            if 30.0 <= boss["rate"] <= 200.0:
+                selected.append(boss)
+
+    if not selected:
+        if not boss_query and boss_ratios:
+            return simple_text(
+                f"{nickname} 님은 현재 배율 30%~200%에 해당하는 보스가 없어요."
+            )
+        return simple_text(
+            f"{nickname} 님의 피해 곡선이 없어 보스 배율을 계산하지 못했어요."
+        )
+
+    corrected_mark = " (보정)" if result_data.get("equipment_correction_applied") else ""
+    lines = ["[ 보스 배율 ]", f"{nickname}{corrected_mark}", ""]
+    lines.extend(
+        f"{boss['label']}: {format_boss_ratio(boss['rate'])}"
+        for boss in selected
+    )
+    lines.append("")
+    lines.append("기준: Maplescouter 피해 곡선·레벨·포스 반영")
+
+    if result_data.get("cache_stale"):
+        lines.append("※ API 응답이 늦어 1시간 이내 캐시 값을 사용했어요.")
+
+    return simple_text("\n".join(lines))
+
+
 def make_distribution_guide():
     return simple_text(
         "보스 분배 계산기입니다.\n\n"
@@ -1354,6 +1694,24 @@ async def handle_maplescouter_command(utterance: str):
     normalized = normalized.replace("\u200b", "")
     normalized = normalized.replace("\ufeff", "")
     normalized = re.sub(r"\s+", " ", normalized)
+
+    if re.fullmatch(r"!?보스배율\s*(all|전체)", normalized, re.IGNORECASE):
+        return simple_text(
+            "보스배율은 캐릭터 한 명씩 조회할 수 있어요.\n\n"
+            "예시:\n"
+            "보스배율 담아요란\n"
+            "보스배율 담아요란 하드 세렌"
+        )
+
+    boss_match = re.fullmatch(
+        r"!?보스배율\s+(\S+)(?:\s+(.+?))?",
+        normalized,
+        re.IGNORECASE,
+    )
+    if boss_match:
+        nickname = boss_match.group(1).strip()
+        boss_query = boss_match.group(2)
+        return await make_boss_ratio_card(nickname, boss_query)
 
     # 본섭 캐릭터 전체 조회
     if re.fullmatch(r"!?환산\s*(all|전체)", normalized, re.IGNORECASE):
@@ -1619,9 +1977,13 @@ async def kakao_skill(request: Request):
         "환산 all\n"
         "부캐환산 all\n"
         "챌섭환산 all\n\n"
-        "2. 보스 분배 계산기\n"
+        "2. 보스 배율 조회\n"
+        "보스배율 닉네임\n"
+        "보스배율 닉네임 하드 세렌\n"
+        "보스배율 닉네임 하세\n\n"
+        "3. 보스 분배 계산기\n"
         "분배계산기\n"
         "분배 300억 6명\n\n"
-        "3. 경험치 조회\n"
+        "4. 경험치 조회\n"
         "경험치 닉네임\n"
     )
