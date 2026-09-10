@@ -64,48 +64,48 @@ SUB_CHARACTERS = [
 EQUIPMENT_TARGET_CORRECTION = {
     "담아요란": {
         "attack": 244,
-        "main_stat": 189,
-        "sub_stat": 170,
+        "main_stat": 200,
+        "sub_stat": 200,
         "main_stat_name": "STR",
         "sub_stat_name": "DEX",
         "power_type": "attack",
     },
     "담요가좋아요": {
         "attack": 244,
-        "main_stat": 170,
-        "sub_stat": 189,
+        "main_stat": 200,
+        "sub_stat": 200,
         "main_stat_name": "DEX",
         "sub_stat_name": "STR",
         "power_type": "attack",
     },
     "다람지스터": {
         "attack": 244,
-        "main_stat": 189,
-        "sub_stat": 170,
+        "main_stat": 200,
+        "sub_stat": 200,
         "main_stat_name": "STR",
         "sub_stat_name": "DEX",
         "power_type": "attack",
     },
     "다람지맹이": {
         "attack": 134,
-        "main_stat": 186,
-        "sub_stat": 170,
+        "main_stat": 200,
+        "sub_stat": 200,
         "main_stat_name": "INT",
         "sub_stat_name": "LUK",
         "power_type": "magic",
     },
     "담요네바이퍼": {
         "attack": 244,
-        "main_stat": 189,
-        "sub_stat": 170,
+        "main_stat": 200,
+        "sub_stat": 200,
         "main_stat_name": "STR",
         "sub_stat_name": "DEX",
         "power_type": "attack",
     },
     "다람지수": {
         "attack": 134,
-        "main_stat": 186,
-        "sub_stat": 170,
+        "main_stat": 200,
+        "sub_stat": 200,
         "main_stat_name": "INT",
         "sub_stat_name": "LUK",
         "power_type": "magic",
@@ -130,6 +130,24 @@ MASTER_LABEL_PLUS_BONUS = {
     4: (40, 90),
     5: (60, 140),
 }
+
+# 현재 보정 목표인 20기 마스터 어밴든 세트. Maplescouter 장비 응답에는
+# 기수 정보가 없으므로 공식/아이템 목록에서 확인한 이름으로 같은 세트를 판별한다.
+MASTER_LABEL_TARGET_SET = "master_abandoned_20"
+MASTER_LABEL_SET_BY_ITEM = {
+    "부서진 권위": MASTER_LABEL_TARGET_SET,
+    "부서진 품위": MASTER_LABEL_TARGET_SET,
+    "영원한 고독": MASTER_LABEL_TARGET_SET,
+    "잊혀진 왈츠": MASTER_LABEL_TARGET_SET,
+    "끝없는 걸음": MASTER_LABEL_TARGET_SET,
+    "영원한 공허": MASTER_LABEL_TARGET_SET,
+    "달빛 눈물": MASTER_LABEL_TARGET_SET,
+    "라스트 벤데타": MASTER_LABEL_TARGET_SET,
+}
+
+# 3세트와 5세트 효과는 누적된다: 공/마 +10, 올스탯 +15.
+MASTER_LABEL_TARGET_SET_ATTACK = 10
+MASTER_LABEL_TARGET_SET_ALL_STAT = 15
 
 # Maplescouter 결과 페이지의 주요 보스 기준값.
 # (key, 표시명, 내부명, 레벨, 아케인포스, 어센틱포스, 방어율,
@@ -859,6 +877,40 @@ def get_master_label_count(user_cash_equip_data: list | None) -> int:
     return min(5, count)
 
 
+def get_master_label_set_bonus(user_cash_equip_data: list | None) -> dict[str, int]:
+    if not isinstance(user_cash_equip_data, list):
+        return {"count": 0, "attack": 0, "all_stat": 0}
+
+    set_counts: dict[str, int] = {}
+
+    for item in user_cash_equip_data:
+        if not isinstance(item, dict):
+            continue
+
+        item_name = ""
+        for key in ("name", "cash_item_name", "cashItemName", "item_name"):
+            if item.get(key):
+                item_name = str(item[key]).strip()
+                break
+
+        set_name = MASTER_LABEL_SET_BY_ITEM.get(item_name)
+        if set_name:
+            set_counts[set_name] = set_counts.get(set_name, 0) + 1
+
+    count = min(5, max(set_counts.values(), default=0))
+    attack = 0
+    all_stat = 0
+
+    if count >= 3:
+        attack += 3
+        all_stat += 5
+    if count >= 5:
+        attack += 7
+        all_stat += 10
+
+    return {"count": count, "attack": attack, "all_stat": all_stat}
+
+
 def calculate_equipment_correction(nickname: str, data: dict):
     target = EQUIPMENT_TARGET_CORRECTION.get(nickname)
     if not target:
@@ -871,6 +923,7 @@ def calculate_equipment_correction(nickname: str, data: dict):
     pet_set_attack = get_pet_set_attack(special_data.get("userPetData"))
 
     current_master_label_count = get_master_label_count(user_cash_equip_data)
+    current_set_bonus = get_master_label_set_bonus(user_cash_equip_data)
     current_plus_attack, current_plus_all_stat = MASTER_LABEL_PLUS_BONUS[
         current_master_label_count
     ]
@@ -886,20 +939,26 @@ def calculate_equipment_correction(nickname: str, data: dict):
     return {
         "attack": (
             target["attack"]
+            + MASTER_LABEL_TARGET_SET_ATTACK
             + target_plus_attack
             - current_attack
+            - current_set_bonus["attack"]
             - current_plus_attack
         ),
         "main_stat": (
             target["main_stat"]
+            + MASTER_LABEL_TARGET_SET_ALL_STAT
             + target_plus_all_stat
             - current_main_stat
+            - current_set_bonus["all_stat"]
             - current_plus_all_stat
         ),
         "sub_stat": (
             target["sub_stat"]
+            + MASTER_LABEL_TARGET_SET_ALL_STAT
             + target_plus_all_stat
             - current_sub_stat
+            - current_set_bonus["all_stat"]
             - current_plus_all_stat
         ),
         "main_stat_name": target["main_stat_name"],
@@ -908,6 +967,9 @@ def calculate_equipment_correction(nickname: str, data: dict):
         "current_main_stat": current_main_stat,
         "current_sub_stat": current_sub_stat,
         "current_master_label_count": current_master_label_count,
+        "current_master_label_set_count": current_set_bonus["count"],
+        "current_master_label_set_attack": current_set_bonus["attack"],
+        "current_master_label_set_all_stat": current_set_bonus["all_stat"],
     }
 
 
