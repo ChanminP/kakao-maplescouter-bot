@@ -1632,7 +1632,12 @@ async def make_boss_ratio_card(nickname: str, boss_query: str | None = None):
         )
 
     corrected_mark = " (보정)" if result_data.get("equipment_correction_applied") else ""
-    lines = ["[ 보스 배율 ]", f"{nickname}{corrected_mark}", ""]
+    hexa_stat = format_stat(result_data.get("hexa_380"))
+    lines = [
+        "[ 보스 배율 ]",
+        f"{nickname} (헥사 {hexa_stat}){corrected_mark}",
+        "",
+    ]
     lines.extend(
         f"{boss['label']}: {format_boss_ratio(boss['rate'])}"
         for boss in selected
