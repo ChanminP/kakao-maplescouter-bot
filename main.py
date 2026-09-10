@@ -937,6 +937,8 @@ def calculate_equipment_correction(nickname: str, data: dict):
     current_sub_stat = cash_bonus[target["sub_stat_name"]]
 
     return {
+        "power_type": power_type,
+        "power_label": "마" if power_type == "magic" else "공",
         "attack": (
             target["attack"]
             + MASTER_LABEL_TARGET_SET_ATTACK
@@ -1591,7 +1593,8 @@ async def make_maplescouter_card(nickname: str):
     if result_data.get("equipment_correction_applied"):
         description_lines.append(
             "보정: 전투복/펫 "
-            f"공{correction.get('attack', 0):+d}, "
+            f"{correction.get('power_label', '공')}"
+            f"{correction.get('attack', 0):+d}, "
             f"{correction.get('main_stat_name', '주스탯')}"
             f"{correction.get('main_stat', 0):+d}, "
             f"{correction.get('sub_stat_name', '부스탯')}"
