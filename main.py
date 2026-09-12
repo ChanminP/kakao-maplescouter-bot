@@ -110,6 +110,14 @@ EQUIPMENT_TARGET_CORRECTION = {
         "sub_stat_name": "LUK",
         "power_type": "magic",
     },
+    "레테맹이": {
+        "attack": 134,
+        "main_stat": 200,
+        "sub_stat": 200,
+        "main_stat_name": "INT",
+        "sub_stat_name": "LUK",
+        "power_type": "magic",
+    },
 }
 
 PET_SET_ATTACK_BY_TYPE = {
